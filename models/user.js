@@ -1,0 +1,92 @@
+// src/models/User.js
+const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+
+const userSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true,
+    },
+
+    phone: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+
+    password: {
+      type: String,
+      required: true,
+      minlength: 6,
+    },
+
+    image: {
+      type: String,
+    },
+
+    role: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Role',
+      required: true,
+    },
+     city: {
+        type: String,
+    },
+    state: {
+        type: String,
+    },
+    address: {
+        type: String,
+    },
+    pinCode: {
+        type: String,
+    },
+
+    active: {
+      type: Boolean,
+      default: true,
+    },
+
+    refreshToken: {
+      type: String,
+    },
+    resetToken:{
+      type: String,
+    },
+    resetTokenExp: {
+      type: Date,
+    },
+    school: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'School',
+          required: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+userSchema.index({ email: 1, phone: 1 });
+
+userSchema.pre('save', async function () {
+  if (!this.isModified('password')) return ;
+  this.password = await bcrypt.hash(this.password, 10);
+});
+
+userSchema.methods.comparePassword =  function (p) {
+  console.log('password ', p);
+  console.log("Comparing password for user ", this.email);
+  return  bcrypt.compare(p, this.password);
+};
+
+module.exports = mongoose.model('User', userSchema);
