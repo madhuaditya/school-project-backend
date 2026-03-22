@@ -11,16 +11,22 @@ const validateUser = (req, res, next) => {
 
   jwt.verify(t, process.env.JWT_ACCESS_SECRET, async (e, d) => {
     // console.log("jwt verify ", e, d);
+      // console.log("nhi fata hai yahan par 000");
     if (e) return res.sendStatus(403);
+    // console.log("yahi par fata hai");
     console.log(d);
+    // console.log("nhi fata hai yahan par 001");
     const user = await User.findById(new mongoose.Types.ObjectId(d._id)).populate('role', 'role').populate('school', '_id name');
+      // console.log("nhi fata hai yahan par 002");
     // console.log("user ", user._id);
-    // if (!user) return res.sendStatus(403);
+    if (!user) return res.sendStatus(403);
     const school = await School.findById(new mongoose.Types.ObjectId(d._id)).populate('role', 'role');
     // console.log("school ", school._id);
+      // console.log("nhi fata hai yahan par 003");
 
 
     if(!school?._id && !user?._id) return res.sendStatus(403);
+      // console.log("nhi fata hai yahan par 004");
     if(user)
     req.user = user;
   else {
@@ -30,6 +36,7 @@ const validateUser = (req, res, next) => {
       role: 'admin'
     };
     req.user = school;}
+      // console.log("nhi fata hai yahan par 005");
     next();
   });
 };

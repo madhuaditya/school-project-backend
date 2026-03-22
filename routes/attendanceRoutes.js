@@ -5,6 +5,8 @@ const {
   getClassAttendance,
   getStaffAttendance,
   getTeacherAttendance,
+  updateAttendance,
+  getTodayAttendace
 } = require("../controllers/attendanceCtrl");
 const { validateUser } = require("../middleware/auth");
 const { allow } = require("../middleware/role");
@@ -20,11 +22,13 @@ router.use(validateUser);
 // Staff: can mark only for themselves
 router.post("/mark",allow("admin", 'teacher', 'staff' ), markAttendance);
 
+router.post("/update",allow("admin", 'teacher', 'staff' ), updateAttendance);
+
 // ==================== GET ATTENDANCE ====================
 // Get own attendance or (if admin) any user's attendance
 // Query: ?userId=<id>&month=<1-12>&year=<YYYY>
 // Month and year optional for filtering
-router.get("/", allow("admin", 'teacher', 'staff'), getAttendance);
+router.get("", allow("admin", 'teacher', 'staff','student'), getAttendance);
 
 // ==================== CLASS ATTENDANCE ====================
 // Get attendance for entire class
@@ -41,5 +45,7 @@ router.get("/staff", allow("admin"), getStaffAttendance);
 // Get teacher's attendance (Admin only)
 // Query: ?teacherId=<id>&month=<1-12>&year=<YYYY>
 router.get("/teacher", allow("admin"), getTeacherAttendance);
+
+router.get("/get-today/:id", getTodayAttendace);
 
 module.exports = router;

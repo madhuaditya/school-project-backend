@@ -200,7 +200,8 @@ const login = async (req, res) => {
 
   if (!u) return res.status(401).json({ msg: 'Invalid credentials' });
   console.log("User found for login: ", u.email, " with role ", u.role.role);
-  const isMatch = u.comparePassword(password)
+  const isMatch = await u.comparePassword(password)
+  // console.log(isMatch ? "Password match successful" : "Password match failed", " for user: ");
   if (!isMatch) return res.status(401).json({ msg: 'Invalid credentials' });
   console.log("Password match successful for user: ", u.email);
   const at = genAT(u);

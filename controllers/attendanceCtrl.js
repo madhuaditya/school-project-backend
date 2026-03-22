@@ -77,10 +77,8 @@ const markAttendance = async (req, res) => {
 
     if(currentUserRole === 'admin' ){
       // he can mark any one attence in the sname school
-      await Attendance.findOneAndUpdate(
-        { _id: existingAttendance?._id||null },
-        {$set:{
-      
+      await Attendance.create(
+     {
         user: userId,
         status,
         date: new Date(date).setHours(0, 0, 0, 0),
@@ -89,29 +87,94 @@ const markAttendance = async (req, res) => {
         class: classId || null,
         createdBy: createdBy,
         updatedBy: currentUserId,
-      }}, { upsert: true });
+      });
       return res.status(201).json(formatResponse(true, "Attendance marked successfully"));
     } else if (currentUserRole === "teacher" &&( targetUser.role.role === "student" || targetUser._id.toString() === currentUserId.toString())) {
-        await Attendance.findOneAndUpdate(
-          { _id: existingAttendance?._id||null },
-        {$set:{
-      
-        user: userId,
-        status,
-        date: new Date(date).setHours(0, 0, 0, 0),
-        remarks: remarks || null,
-        school: schoolId,
-        class: classId || null,
-        createdBy: createdBy,
-        updatedBy: currentUserId,
-      }}, { upsert: true });
+         await Attendance.create(
+            {
+                user: userId,
+                status,
+                date: new Date(date).setHours(0, 0, 0, 0),
+                remarks: remarks || null,
+                school: schoolId,
+                class: classId || null,
+                createdBy: createdBy,
+                updatedBy: currentUserId,
+              });
 
     } else if (currentUserRole === "staff" && targetUser._id.toString() === currentUserId.toString()) {
       // Staff can only mark for themselves
-      await Attendance.findOneAndUpdate(
-          { _id: existingAttendance?._id||null },
-        {$set:{
-      
+     await Attendance.create(
+      {
+          user: userId,
+          status,
+          date: new Date(date).setHours(0, 0, 0, 0),
+          remarks: remarks || null,
+          school: schoolId,
+          class: classId || null,
+          createdBy: createdBy,
+          updatedBy: currentUserId,
+        });
+    } else {
+      return res.status(403).json(formatResponse(false, "Unauthorized to mark attendance"));
+    }
+  } catch (error) {
+    console.error("Error marking attendance:", error);
+    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+  }
+};
+
+const updateAttendance = async (req, res) => {
+  try {
+    const { userId, date, status, remarks, classId } = req.body;
+    const currentUserId = req.user._id;
+    const schoolId = req.user.school._id;
+    const currentUserRole = req.user.role.role;
+    
+
+    if(!schoolId) {
+      return res.status(400).json(formatResponse(false, "Your account is not associated with any school"));
+    }
+
+    // Validation
+    if (!userId || !date || !status) {
+      return res.status(400).json(
+        formatResponse(false, "Missing required fields: userId, date, status, school")
+      );
+    }
+
+    if (!["present", "absent", "leave"].includes(status)) {
+      return res.status(400).json(
+        formatResponse(false, "Invalid status. Must be: present, absent, or leave")
+      );
+    }
+
+    // Check if user exists
+    const targetUser = await User.findById(userId).populate('role', 'role').populate('school', '_id schoolName');
+    if (!targetUser) {
+      return res.status(404).json(formatResponse(false, "User not found"));
+    }
+    if(targetUser.school._id.toString() !== schoolId.toString()) {
+      return res.status(403).json(formatResponse(false, "You can only mark attendance for users in your school"));
+    }
+
+
+
+    const existingAttendance = await Attendance.findOne({
+      user: userId,
+      date: new Date(date).setHours(0, 0, 0, 0),
+      school: schoolId
+    });
+    let createdBy = currentUserId;
+    
+    if (!existingAttendance) {
+       return res.status(404).json(formatResponse(false, "Attendance record not found for the given user and date"));
+    }
+
+    if(currentUserRole === 'admin' ){
+      // he can mark any one attence in the sname school
+      await existingAttendance.save(
+         {
         user: userId,
         status,
         date: new Date(date).setHours(0, 0, 0, 0),
@@ -120,7 +183,34 @@ const markAttendance = async (req, res) => {
         class: classId || null,
         createdBy: createdBy,
         updatedBy: currentUserId,
-      }}, { upsert: true, returnDocument: "after" });
+      });
+      return res.status(201).json(formatResponse(true, "Attendance marked successfully"));
+    } else if (currentUserRole === "teacher" &&( targetUser.role.role === "student" || targetUser._id.toString() === currentUserId.toString())) {
+        await existingAttendance.save(
+         {
+        user: userId,
+        status,
+        date: new Date(date).setHours(0, 0, 0, 0),
+        remarks: remarks || null,
+        school: schoolId,
+        class: classId || null,
+        createdBy: createdBy,
+        updatedBy: currentUserId,
+      });
+
+    } else if (currentUserRole === "staff" && targetUser._id.toString() === currentUserId.toString()) {
+      // Staff can only mark for themselves
+      await existingAttendance.save(
+        {
+          user: userId,
+          status,
+          date: new Date(date).setHours(0, 0, 0, 0),
+          remarks: remarks || null,
+          school: schoolId,
+          class: classId || null,
+          createdBy: createdBy,
+          updatedBy: currentUserId,
+        });
     } else {
       return res.status(403).json(formatResponse(false, "Unauthorized to mark attendance"));
     }
@@ -149,7 +239,7 @@ const getAttendance = async (req, res) => {
     // Authorization: Users can only see their own attendance unless they're admin
     if (
       currentUserRole !== "admin" &&
-      currentUserRole !== "school" &&
+      currentUserRole !== "teacher" &&
       targetUserId !== currentUserId.toString()
     ) {
       return res.status(403).json(formatResponse(false, "You can only view your own attendance"));
@@ -425,10 +515,149 @@ const getTeacherAttendance = async (req, res) => {
   }
 };
 
+const getTodayAttendace = async (req, res) => {
+  console.log("idhar to mai aya hun")
+  try {
+    const targateUser =  req.params.id;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+    const today = new Date();
+    const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+
+    const user = await User.findById(targateUser).populate('role', 'role');
+
+    if(!user)
+     return  res.status(404).json("User Not found");
+  
+
+    // Build filter
+    const filter = {
+      user: currentUserId,
+      school: currentUserSchool,
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay,
+      },
+    };
+
+    console.log("currentUserRole ", currentUserRole);
+    if(currentUserRole === "admin" || currentUserRole === "teacher" ) {
+      if( currentUserRole === 'admin' ){
+         const attendanceRecords = await Attendance.find(filter)
+            .populate("user", "_id name email")
+            .sort({ date: -1 });
+
+          if (attendanceRecords.length === 0) {
+                return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+          }
+         const summary = {
+            total: attendanceRecords.length,
+            present: attendanceRecords.filter((a) => a.status === "present").length,
+            absent: attendanceRecords.filter((a) => a.status === "absent").length,
+            leave: attendanceRecords.filter((a) => a.status === "leave").length,
+          };
+
+          return res.status(200).json(
+            {
+              attendance: attendanceRecords,
+              summary,
+              filters: { startOfDay, endOfDay },
+            }
+          );
+      }else if((user.role.role==='student')&& currentUserRole==='teacher'){
+         const attendanceRecords = await Attendance.find(filter)
+          .populate("user", "_id name email")
+          .sort({ date: -1 });
+
+        if (attendanceRecords.length === 0) {
+              return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+              }
+      const summary = {
+            total: attendanceRecords.length,
+            present: attendanceRecords.filter((a) => a.status === "present").length,
+            absent: attendanceRecords.filter((a) => a.status === "absent").length,
+            leave: attendanceRecords.filter((a) => a.status === "leave").length,
+          };
+
+          return res.status(200).json(
+            {
+              attendance: attendanceRecords,
+              summary,
+              filters: { startOfDay, endOfDay },
+            }
+          );
+
+      }else if(user._id === currentUserId){
+         const attendanceRecords = await Attendance.find(filter)
+      .populate("user", "_id name email")
+      .sort({ date: -1 });
+        if (attendanceRecords.length === 0) {
+              return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+        }
+        const summary = {
+              total: attendanceRecords.length,
+              present: attendanceRecords.filter((a) => a.status === "present").length,
+              absent: attendanceRecords.filter((a) => a.status === "absent").length,
+              leave: attendanceRecords.filter((a) => a.status === "leave").length,
+            };
+
+        return res.status(200).json(
+          {
+            attendance: attendanceRecords,
+            summary,
+            filters: { startOfDay, endOfDay },
+          }
+        );
+      }else {
+        return res.status(404).json("You role is not sutable to get attendence")
+      }
+    }else  {
+        if(user._id.toString() !== currentUserId.toString()) {
+          return res.status(403).json(formatResponse(false, "You can only view your own attendance"));
+        }
+        
+        const attendanceRecords = await Attendance.find(filter)
+          .populate("user", "_id name email")
+          .sort({ date: -1 });
+
+        if (attendanceRecords.length === 0) {
+              return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+        }
+         const summary = {
+          total: attendanceRecords.length,
+          present: attendanceRecords.filter((a) => a.status === "present").length,
+          absent: attendanceRecords.filter((a) => a.status === "absent").length,
+          leave: attendanceRecords.filter((a) => a.status === "leave").length,
+        };
+
+        return res.status(200).json(
+          {
+            attendance: attendanceRecords,
+            summary,
+            filters: { startOfDay, endOfDay },
+          }
+        );
+    }
+
+  
+
+    
+
+    
+  } catch (error) {
+    console.error("Error fetching today's attendance:", error);
+    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+  }
+};
+
 module.exports = {
   markAttendance,
   getAttendance,
   getClassAttendance,
   getStaffAttendance,
   getTeacherAttendance,
+  getTodayAttendace,
+  updateAttendance
 };
