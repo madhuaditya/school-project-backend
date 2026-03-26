@@ -62,8 +62,6 @@ const markAttendance = async (req, res) => {
       return res.status(403).json(formatResponse(false, "You can only mark attendance for users in your school"));
     }
 
-
-
     const existingAttendance = await Attendance.findOne({
       user: userId,
       date: new Date(date).setHours(0, 0, 0, 0),
@@ -76,9 +74,7 @@ const markAttendance = async (req, res) => {
     }
 
     if(currentUserRole === 'admin' ){
-      // he can mark any one attence in the sname school
-      await Attendance.create(
-     {
+      const newAttendance = await Attendance.create({
         user: userId,
         status,
         date: new Date(date).setHours(0, 0, 0, 0),
@@ -88,39 +84,37 @@ const markAttendance = async (req, res) => {
         createdBy: createdBy,
         updatedBy: currentUserId,
       });
-      return res.status(201).json(formatResponse(true, "Attendance marked successfully"));
-    } else if (currentUserRole === "teacher" &&( targetUser.role.role === "student" || targetUser._id.toString() === currentUserId.toString())) {
-         await Attendance.create(
-            {
-                user: userId,
-                status,
-                date: new Date(date).setHours(0, 0, 0, 0),
-                remarks: remarks || null,
-                school: schoolId,
-                class: classId || null,
-                createdBy: createdBy,
-                updatedBy: currentUserId,
-              });
-
+      return res.status(201).json(formatResponse(true, "Attendance marked successfully", newAttendance));
+    } else if (currentUserRole === "teacher" && (targetUser.role.role === "student" || targetUser._id.toString() === currentUserId.toString())) {
+      const newAttendance = await Attendance.create({
+        user: userId,
+        status,
+        date: new Date(date).setHours(0, 0, 0, 0),
+        remarks: remarks || null,
+        school: schoolId,
+        class: classId || null,
+        createdBy: createdBy,
+        updatedBy: currentUserId,
+      });
+      return res.status(201).json(formatResponse(true, "Attendance marked successfully", newAttendance));
     } else if (currentUserRole === "staff" && targetUser._id.toString() === currentUserId.toString()) {
-      // Staff can only mark for themselves
-     await Attendance.create(
-      {
-          user: userId,
-          status,
-          date: new Date(date).setHours(0, 0, 0, 0),
-          remarks: remarks || null,
-          school: schoolId,
-          class: classId || null,
-          createdBy: createdBy,
-          updatedBy: currentUserId,
-        });
+      const newAttendance = await Attendance.create({
+        user: userId,
+        status,
+        date: new Date(date).setHours(0, 0, 0, 0),
+        remarks: remarks || null,
+        school: schoolId,
+        class: classId || null,
+        createdBy: createdBy,
+        updatedBy: currentUserId,
+      });
+      return res.status(201).json(formatResponse(true, "Attendance marked successfully", newAttendance));
     } else {
       return res.status(403).json(formatResponse(false, "Unauthorized to mark attendance"));
     }
   } catch (error) {
     console.error("Error marking attendance:", error);
-    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+    return res.status(500).json(formatResponse(false, "Error marking attendance", null, error.message));
   }
 };
 
@@ -155,68 +149,43 @@ const updateAttendance = async (req, res) => {
       return res.status(404).json(formatResponse(false, "User not found"));
     }
     if(targetUser.school._id.toString() !== schoolId.toString()) {
-      return res.status(403).json(formatResponse(false, "You can only mark attendance for users in your school"));
+      return res.status(403).json(formatResponse(false, "You can only update attendance for users in your school"));
     }
-
-
 
     const existingAttendance = await Attendance.findOne({
       user: userId,
       date: new Date(date).setHours(0, 0, 0, 0),
       school: schoolId
     });
-    let createdBy = currentUserId;
     
     if (!existingAttendance) {
        return res.status(404).json(formatResponse(false, "Attendance record not found for the given user and date"));
     }
 
     if(currentUserRole === 'admin' ){
-      // he can mark any one attence in the sname school
-      await existingAttendance.save(
-         {
-        user: userId,
-        status,
-        date: new Date(date).setHours(0, 0, 0, 0),
-        remarks: remarks || null,
-        school: schoolId,
-        class: classId || null,
-        createdBy: createdBy,
-        updatedBy: currentUserId,
-      });
-      return res.status(201).json(formatResponse(true, "Attendance marked successfully"));
-    } else if (currentUserRole === "teacher" &&( targetUser.role.role === "student" || targetUser._id.toString() === currentUserId.toString())) {
-        await existingAttendance.save(
-         {
-        user: userId,
-        status,
-        date: new Date(date).setHours(0, 0, 0, 0),
-        remarks: remarks || null,
-        school: schoolId,
-        class: classId || null,
-        createdBy: createdBy,
-        updatedBy: currentUserId,
-      });
-
+      existingAttendance.status = status;
+      existingAttendance.remarks = remarks || null;
+      existingAttendance.updatedBy = currentUserId;
+      await existingAttendance.save();
+      return res.status(200).json(formatResponse(true, "Attendance updated successfully", existingAttendance));
+    } else if (currentUserRole === "teacher" && (targetUser.role.role === "student" || targetUser._id.toString() === currentUserId.toString())) {
+      existingAttendance.status = status;
+      existingAttendance.remarks = remarks || null;
+      existingAttendance.updatedBy = currentUserId;
+      await existingAttendance.save();
+      return res.status(200).json(formatResponse(true, "Attendance updated successfully", existingAttendance));
     } else if (currentUserRole === "staff" && targetUser._id.toString() === currentUserId.toString()) {
-      // Staff can only mark for themselves
-      await existingAttendance.save(
-        {
-          user: userId,
-          status,
-          date: new Date(date).setHours(0, 0, 0, 0),
-          remarks: remarks || null,
-          school: schoolId,
-          class: classId || null,
-          createdBy: createdBy,
-          updatedBy: currentUserId,
-        });
+      existingAttendance.status = status;
+      existingAttendance.remarks = remarks || null;
+      existingAttendance.updatedBy = currentUserId;
+      await existingAttendance.save();
+      return res.status(200).json(formatResponse(true, "Attendance updated successfully", existingAttendance));
     } else {
-      return res.status(403).json(formatResponse(false, "Unauthorized to mark attendance"));
+      return res.status(403).json(formatResponse(false, "Unauthorized to update attendance"));
     }
   } catch (error) {
-    console.error("Error marking attendance:", error);
-    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+    console.error("Error updating attendance:", error);
+    return res.status(500).json(formatResponse(false, "Error updating attendance", null, error.message));
   }
 };
 
@@ -293,15 +262,15 @@ const getAttendance = async (req, res) => {
     };
 
     return res.status(200).json(
-     {
+      formatResponse(true, "Attendance records fetched successfully", {
         attendance: attendanceRecords,
         summary,
         filters: { month, year },
-      }
+      })
     );
   } catch (error) {
     console.error("Error fetching attendance:", error);
-    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+    return res.status(500).json(formatResponse(false, "Error fetching attendance", null, error.message));
   }
 };
 
@@ -372,16 +341,16 @@ const getClassAttendance = async (req, res) => {
     }
 
     return res.status(200).json(
-       {
+      formatResponse(true, "Class attendance records fetched successfully", {
         classInfo: { id: classDoc._id, name: classDoc.name, grade: classDoc.grade },
         attendance: attendanceRecords,
         totalRecords: attendanceRecords.length,
         filters: { month, year },
-      }
+      })
     );
   } catch (error) {
     console.error("Error fetching class attendance:", error);
-    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+    return res.status(500).json(formatResponse(false, "Error fetching class attendance", null, error.message));
   }
 };
 
@@ -438,15 +407,15 @@ const getStaffAttendance = async (req, res) => {
     };
 
     return res.status(200).json(
-       {
+      formatResponse(true, "Staff attendance records fetched successfully", {
         attendance: attendanceRecords,
         summary,
         filters: { month, year },
-      }
+      })
     );
   } catch (error) {
     console.error("Error fetching staff attendance:", error);
-    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+    return res.status(500).json(formatResponse(false, "Error fetching staff attendance", null, error.message));
   }
 };
 
@@ -503,22 +472,21 @@ const getTeacherAttendance = async (req, res) => {
     };
 
     return res.status(200).json(
-       {
+      formatResponse(true, "Teacher attendance records fetched successfully", {
         attendance: attendanceRecords,
         summary,
         filters: { month, year },
-      }
+      })
     );
   } catch (error) {
     console.error("Error fetching teacher attendance:", error);
-    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+    return res.status(500).json(formatResponse(false, "Error fetching teacher attendance", null, error.message));
   }
 };
 
 const getTodayAttendace = async (req, res) => {
-  console.log("idhar to mai aya hun")
   try {
-    const targateUser =  req.params.id;
+    const targetUser = req.params.id;
     const currentUserId = req.user._id;
     const currentUserRole = req.user.role.role;
     const currentUserSchool = req.user.school._id;
@@ -526,11 +494,11 @@ const getTodayAttendace = async (req, res) => {
     const startOfDay = new Date(today.setHours(0, 0, 0, 0));
     const endOfDay = new Date(today.setHours(23, 59, 59, 999));
 
-    const user = await User.findById(targateUser).populate('role', 'role');
+    const user = await User.findById(targetUser).populate('role', 'role');
 
-    if(!user)
-     return  res.status(404).json("User Not found");
-  
+    if(!user) {
+      return res.status(404).json(formatResponse(false, "User not found"));
+    }
 
     // Build filter
     const filter = {
@@ -542,90 +510,17 @@ const getTodayAttendace = async (req, res) => {
       },
     };
 
-    console.log("currentUserRole ", currentUserRole);
-    if(currentUserRole === "admin" || currentUserRole === "teacher" ) {
-      if( currentUserRole === 'admin' ){
-         const attendanceRecords = await Attendance.find(filter)
-            .populate("user", "_id name email")
-            .sort({ date: -1 });
-
-          if (attendanceRecords.length === 0) {
-                return res.status(404).json(formatResponse(false, "No attendance records found for today"));
-          }
-         const summary = {
-            total: attendanceRecords.length,
-            present: attendanceRecords.filter((a) => a.status === "present").length,
-            absent: attendanceRecords.filter((a) => a.status === "absent").length,
-            leave: attendanceRecords.filter((a) => a.status === "leave").length,
-          };
-
-          return res.status(200).json(
-            {
-              attendance: attendanceRecords,
-              summary,
-              filters: { startOfDay, endOfDay },
-            }
-          );
-      }else if((user.role.role==='student')&& currentUserRole==='teacher'){
-         const attendanceRecords = await Attendance.find(filter)
-          .populate("user", "_id name email")
-          .sort({ date: -1 });
-
-        if (attendanceRecords.length === 0) {
-              return res.status(404).json(formatResponse(false, "No attendance records found for today"));
-              }
-      const summary = {
-            total: attendanceRecords.length,
-            present: attendanceRecords.filter((a) => a.status === "present").length,
-            absent: attendanceRecords.filter((a) => a.status === "absent").length,
-            leave: attendanceRecords.filter((a) => a.status === "leave").length,
-          };
-
-          return res.status(200).json(
-            {
-              attendance: attendanceRecords,
-              summary,
-              filters: { startOfDay, endOfDay },
-            }
-          );
-
-      }else if(user._id === currentUserId){
-         const attendanceRecords = await Attendance.find(filter)
-      .populate("user", "_id name email")
-      .sort({ date: -1 });
-        if (attendanceRecords.length === 0) {
-              return res.status(404).json(formatResponse(false, "No attendance records found for today"));
-        }
-        const summary = {
-              total: attendanceRecords.length,
-              present: attendanceRecords.filter((a) => a.status === "present").length,
-              absent: attendanceRecords.filter((a) => a.status === "absent").length,
-              leave: attendanceRecords.filter((a) => a.status === "leave").length,
-            };
-
-        return res.status(200).json(
-          {
-            attendance: attendanceRecords,
-            summary,
-            filters: { startOfDay, endOfDay },
-          }
-        );
-      }else {
-        return res.status(404).json("You role is not sutable to get attendence")
-      }
-    }else  {
-        if(user._id.toString() !== currentUserId.toString()) {
-          return res.status(403).json(formatResponse(false, "You can only view your own attendance"));
-        }
-        
+    if(currentUserRole === "admin" || currentUserRole === "teacher") {
+      if(currentUserRole === 'admin') {
         const attendanceRecords = await Attendance.find(filter)
           .populate("user", "_id name email")
           .sort({ date: -1 });
 
         if (attendanceRecords.length === 0) {
-              return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+          return res.status(404).json(formatResponse(false, "No attendance records found for today"));
         }
-         const summary = {
+        
+        const summary = {
           total: attendanceRecords.length,
           present: attendanceRecords.filter((a) => a.status === "present").length,
           absent: attendanceRecords.filter((a) => a.status === "absent").length,
@@ -633,22 +528,92 @@ const getTodayAttendace = async (req, res) => {
         };
 
         return res.status(200).json(
-          {
+          formatResponse(true, "Today's attendance records fetched successfully", {
             attendance: attendanceRecords,
             summary,
             filters: { startOfDay, endOfDay },
-          }
+          })
         );
+      } else if((user.role.role === 'student') && currentUserRole === 'teacher') {
+        const attendanceRecords = await Attendance.find(filter)
+          .populate("user", "_id name email")
+          .sort({ date: -1 });
+
+        if (attendanceRecords.length === 0) {
+          return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+        }
+        
+        const summary = {
+          total: attendanceRecords.length,
+          present: attendanceRecords.filter((a) => a.status === "present").length,
+          absent: attendanceRecords.filter((a) => a.status === "absent").length,
+          leave: attendanceRecords.filter((a) => a.status === "leave").length,
+        };
+
+        return res.status(200).json(
+          formatResponse(true, "Today's attendance records fetched successfully", {
+            attendance: attendanceRecords,
+            summary,
+            filters: { startOfDay, endOfDay },
+          })
+        );
+      } else if(user._id.toString() === currentUserId.toString()) {
+        const attendanceRecords = await Attendance.find(filter)
+          .populate("user", "_id name email")
+          .sort({ date: -1 });
+          
+        if (attendanceRecords.length === 0) {
+          return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+        }
+        
+        const summary = {
+          total: attendanceRecords.length,
+          present: attendanceRecords.filter((a) => a.status === "present").length,
+          absent: attendanceRecords.filter((a) => a.status === "absent").length,
+          leave: attendanceRecords.filter((a) => a.status === "leave").length,
+        };
+
+        return res.status(200).json(
+          formatResponse(true, "Today's attendance records fetched successfully", {
+            attendance: attendanceRecords,
+            summary,
+            filters: { startOfDay, endOfDay },
+          })
+        );
+      } else {
+        return res.status(403).json(formatResponse(false, "Your role is not suitable to get attendance"));
+      }
+    } else {
+      if(user._id.toString() !== currentUserId.toString()) {
+        return res.status(403).json(formatResponse(false, "You can only view your own attendance"));
+      }
+      
+      const attendanceRecords = await Attendance.find(filter)
+        .populate("user", "_id name email")
+        .sort({ date: -1 });
+
+      if (attendanceRecords.length === 0) {
+        return res.status(404).json(formatResponse(false, "No attendance records found for today"));
+      }
+      
+      const summary = {
+        total: attendanceRecords.length,
+        present: attendanceRecords.filter((a) => a.status === "present").length,
+        absent: attendanceRecords.filter((a) => a.status === "absent").length,
+        leave: attendanceRecords.filter((a) => a.status === "leave").length,
+      };
+
+      return res.status(200).json(
+        formatResponse(true, "Today's attendance records fetched successfully", {
+          attendance: attendanceRecords,
+          summary,
+          filters: { startOfDay, endOfDay },
+        })
+      );
     }
-
-  
-
-    
-
-    
   } catch (error) {
     console.error("Error fetching today's attendance:", error);
-    return res.status(500).json(formatResponse(false, "Internal server error", null, error.message));
+    return res.status(500).json(formatResponse(false, "Error fetching today's attendance", null, error.message));
   }
 };
 

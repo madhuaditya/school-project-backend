@@ -4,10 +4,12 @@ const cors = require('cors');
 const morgan = require('morgan');
 const authRoutes = require('./routes/authRoutes');
 const attendanceRoutes = require("./routes/attendanceRoutes");
-
-const testRouts = require('./routes/testRoutes');
+const classRoutes = require('./routes/classRoutes')
+const subjectRoutes = require('./routes/subjectRoutes')
+const teacherRoutes = require('./routes/teacherRoutes');
+const studentRoutes = require('./routes/studentRoutes');
+const sanitizeResponse = require("./middleware/sanitizeResponse")
 const profileRoutes = require('./routes/profileRoutes');
-const saleRoutes = require('./routes/saleRoutes');
 const dotenv = require("dotenv")
 dotenv.config();
 const app = express();
@@ -17,8 +19,13 @@ app.use(express.json());
 app.use(morgan('dev'));
 app.use('/api/auth', authRoutes);
 app.use("/api/attendance", attendanceRoutes);
+app.use("/api/class", classRoutes)
+app.use('/api/subject', subjectRoutes)
+app.use('/api/teacher', teacherRoutes);
+app.use('/api/student', studentRoutes);
+app.use(sanitizeResponse)
 // app.use('/test',testRouts);
-// app.use('/profile', profileRoutes);
+app.use('/profile', profileRoutes);
 // app.use('/sales', saleRoutes);
 // app.use('/invoice', require('./routes/invoiceRoutes'));
 // app.use('/transport', require('./routes/transportRoutes'));

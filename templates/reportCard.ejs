@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      border: 3px solid #c0392b;
+      padding: 20px;
+    }
+
+    .header {
+      text-align: center;
+      border-bottom: 2px solid #000;
+      padding-bottom: 10px;
+    }
+
+    .school-name {
+      font-size: 24px;
+      font-weight: bold;
+      color: #c0392b;
+    }
+
+    .info {
+      margin-top: 10px;
+      font-size: 12px;
+    }
+
+    .student-info {
+      margin-top: 15px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    table, th, td {
+      border: 1px solid black;
+      font-size: 12px;
+    }
+
+    th, td {
+      padding: 5px;
+      text-align: center;
+    }
+
+    .summary {
+      margin-top: 15px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .footer {
+      margin-top: 30px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .signature {
+      border-top: 1px solid black;
+      width: 200px;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="school-name"><%= school.name %></div>
+    <div class="info"><%= school.address %></div>
+    <div class="info">Academic Year: <%= academicYear %></div>
+  </div>
+
+  <!-- STUDENT INFO -->
+  <div class="student-info">
+    <div>
+      <p><b>Name:</b> <%= student.name %></p>
+      <p><b>Father:</b> <%= student.fatherName %></p>
+      <p><b>Roll:</b> <%= student.rollNumber %></p>
+    </div>
+    <div>
+      <p><b>Class:</b> <%= classData.name %></p>
+      <p><b>Section:</b> <%= classData.section %></p>
+    </div>
+  </div>
+
+  <!-- SUBJECT TABLE -->
+  <table>
+    <tr>
+      <th>Subject</th>
+      <th>Marks</th>
+      <th>Total</th>
+      <th>%</th>
+      <th>Grade</th>
+    </tr>
+
+    <% subjects.forEach(s => { %>
+      <tr>
+        <td><%= s.subjectName %></td>
+        <td><%= s.obtained %></td>
+        <td><%= s.total %></td>
+        <td><%= s.percentage %></td>
+        <td><%= s.grade %></td>
+      </tr>
+    <% }) %>
+  </table>
+
+  <!-- SUMMARY -->
+  <div class="summary">
+    <p><b>Total:</b> <%= summary.obtainedMarks %>/<%= summary.totalMarks %></p>
+    <p><b>Percentage:</b> <%= summary.percentage %>%</p>
+    <p><b>Grade:</b> <%= summary.grade %></p>
+    <p><b>Rank:</b> <%= summary.rank %></p>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="signature">Class Teacher</div>
+    <div class="signature">Principal</div>
+  </div>
+
+</body>
+</html>

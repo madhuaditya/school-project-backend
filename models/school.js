@@ -39,6 +39,15 @@ const schoolSchema = new mongoose.Schema({
     role: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Role',
+    },
+    refreshToken: {
+      type: String,
+    },
+    resetToken:{
+      type: String,
+    },
+    resetTokenExp: {
+      type: Date,
     }
 
 }, { timestamps: true });

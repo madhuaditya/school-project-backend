@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {
+  font-family: Arial;
+  border: 4px solid #c0392b;
+  padding: 15px;
+}
+
+.header {
+  text-align: center;
+  border-bottom: 2px solid black;
+  padding-bottom: 5px;
+}
+
+.school-name {
+  font-size: 22px;
+  color: #c0392b;
+  font-weight: bold;
+}
+
+.top-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.student-photo {
+  width: 80px;
+  height: 100px;
+  border: 1px solid black;
+}
+
+.info {
+  font-size: 12px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+th, td {
+  border: 1px solid black;
+  font-size: 11px;
+  padding: 4px;
+  text-align: center;
+}
+
+.section-title {
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+.footer {
+  margin-top: 20px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.signature {
+  border-top: 1px solid black;
+  width: 200px;
+  text-align: center;
+  padding-top: 5px;
+}
+
+</style>
+</head>
+
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="school-name"><%= school.name %></div>
+  <div class="info"><%= school.address %></div>
+  <div class="info">Academic Session: <%= academicYear %></div>
+</div>
+
+<!-- STUDENT DETAILS -->
+<div class="top-row">
+  <div class="info">
+    <p><b>Name:</b> <%= student.name %></p>
+    <p><b>Father:</b> <%= student.fatherName %></p>
+    <p><b>Mother:</b> <%= student.motherName %></p>
+    <p><b>DOB:</b> <%= student.dob %></p>
+  </div>
+
+  <div class="info">
+    <p><b>Class:</b> <%= classData.name %></p>
+    <p><b>Section:</b> <%= classData.section %></p>
+    <p><b>Roll:</b> <%= student.rollNumber %></p>
+  </div>
+
+  <img src="<%= student.photo %>" class="student-photo"/>
+</div>
+
+<!-- SCHOLASTIC -->
+<div class="section-title">Scholastic Areas</div>
+
+<table>
+<tr>
+  <th rowspan="2">Subject</th>
+  <th colspan="2">Term 1</th>
+  <th colspan="2">Term 2</th>
+  <th colspan="2">Overall</th>
+</tr>
+
+<tr>
+  <th>Marks</th>
+  <th>Grade</th>
+  <th>Marks</th>
+  <th>Grade</th>
+  <th>Total</th>
+  <th>Grade</th>
+</tr>
+
+<% subjects.forEach(s => { %>
+<tr>
+  <td><%= s.name %></td>
+  <td><%= s.term1 %></td>
+  <td><%= s.grade1 %></td>
+  <td><%= s.term2 %></td>
+  <td><%= s.grade2 %></td>
+  <td><%= s.total %></td>
+  <td><%= s.finalGrade %></td>
+</tr>
+<% }) %>
+</table>
+
+<!-- SUMMARY -->
+<table>
+<tr>
+  <td><b>Total Marks</b></td>
+  <td><%= summary.totalMarks %></td>
+  <td><b>Obtained</b></td>
+  <td><%= summary.obtainedMarks %></td>
+</tr>
+<tr>
+  <td><b>Percentage</b></td>
+  <td><%= summary.percentage %>%</td>
+  <td><b>Grade</b></td>
+  <td><%= summary.grade %></td>
+</tr>
+<tr>
+  <td><b>Rank</b></td>
+  <td><%= summary.rank %></td>
+  <td><b>Attendance</b></td>
+  <td><%= summary.attendance %></td>
+</tr>
+</table>
+
+<!-- CO-SCHOLASTIC -->
+<div class="section-title">Co-Scholastic Areas</div>
+
+<table>
+<tr>
+  <th>Activity</th>
+  <th>Grade</th>
+</tr>
+
+<% coScholastic.forEach(c => { %>
+<tr>
+  <td><%= c.name %></td>
+  <td><%= c.grade %></td>
+</tr>
+<% }) %>
+</table>
+
+<!-- REMARKS -->
+<div class="section-title">Remarks</div>
+<p><%= remarks %></p>
+
+<p><b>Promotion:</b> Promoted to next class</p>
+
+<!-- SIGNATURE -->
+<div class="footer">
+  <div class="signature">Class Teacher</div>
+  <div class="signature">Principal</div>
+</div>
+
+</body>
+</html>

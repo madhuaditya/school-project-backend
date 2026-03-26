@@ -1,28 +1,52 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const subjectSchema = new mongoose.Schema({
-    subName: {
-        type: String,
-        required: true,
-    },
-    subCode: {
-        type: String,
-        required: true,
-    },
-    sessions: {
-        type: String,
-        required: true,
-    },
-    sclassName: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Class',
-        required: true,
-    },
-     School: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'School',
-            required: true,
-        },
+  name: {
+    type: String,
+    required: true
+  },
+
+  code: {
+    type: String
+  },
+
+  class: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Class',
+    required: true
+  },
+
+  school: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'School',
+    required: true
+  },
+
+  teacher: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Teacher',
+    required: true
+  },
+
+  maxMarks: {
+    type: Number,
+    default: 100
+  },
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
+
 }, { timestamps: true });
 
-module.exports = mongoose.model("Subject", subjectSchema);
+// prevent duplicate subject in same class
+subjectSchema.index({ name: 1, class: 1, school: 1 }, { unique: true });
+
+module.exports = mongoose.model('Subject', subjectSchema);

@@ -10,6 +10,10 @@ const teacherSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Admin',
     },
+    class:{
+    type : mongoose.Schema.Types.ObjectId,
+    ref: 'Class'
+    },
     classTeacher: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Class'
