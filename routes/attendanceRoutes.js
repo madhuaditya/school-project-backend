@@ -46,6 +46,18 @@ router.get("/staff", allow("admin"), getStaffAttendance);
 // Query: ?teacherId=<id>&month=<1-12>&year=<YYYY>
 router.get("/teacher", allow("admin"), getTeacherAttendance);
 
-router.get("/get-today/:id", getTodayAttendace);
+router.get(
+  "/get-today/:id",
+  (req, res, next) => {
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      "Surrogate-Control": "no-store",
+    });
+    next();
+  },
+  getTodayAttendace
+);
 
 module.exports = router;

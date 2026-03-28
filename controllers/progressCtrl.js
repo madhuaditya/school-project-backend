@@ -3,6 +3,7 @@ const Student = require('../models/student');
 const Subject = require('../models/subject');
 const PDFDocument = require('pdfkit');
 const Class = require('../models/class');
+const Teacher = require('../models/teacher');
 const puppeteer = require("puppeteer");
 const ejs = require("ejs");
 const path = require("path");
@@ -20,6 +21,42 @@ const formatResponse = (success, msg, data = null, error = null) => {
   };
 };
 
+const getUserRole = (user) => user?.role?.role || user?.role;
+const getSchoolId = (user) => user?.school?._id || user?.school;
+
+const ensureTeacherCanUseSubject = async (userId, subject) => {
+  const teacher = await Teacher.findOne({ user: userId }).select('_id');
+  if (!teacher) return false;
+  return subject.teacher?.toString() === teacher._id.toString();
+};
+
+const getValidStudentAndSubject = async ({ studentId, subjectId, schoolId }) => {
+  const student = await Student.findById(studentId)
+    .populate({ path: 'user', select: '_id school' })
+    .populate({ path: 'class', select: '_id name section' });
+  const subject = await Subject.findById(subjectId)
+    .populate({ path: 'teacher', select: '_id user' });
+
+  if (!student || !subject) {
+    return { error: formatResponse(false, 'Invalid student/subject'), status: 404 };
+  }
+
+  const studentSchoolId = student.user?.school;
+  if (!studentSchoolId || studentSchoolId.toString() !== schoolId.toString()) {
+    return { error: formatResponse(false, 'Student is not in your school'), status: 403 };
+  }
+
+  if (subject.school.toString() !== schoolId.toString()) {
+    return { error: formatResponse(false, 'Subject is not in your school'), status: 403 };
+  }
+
+  if (!student.class || subject.class.toString() !== student.class._id.toString()) {
+    return { error: formatResponse(false, 'Subject is not valid for this student class'), status: 400 };
+  }
+
+  return { student, subject };
+};
+
 const addProgress = async (req, res) => {
   try {
     const {
@@ -32,29 +69,48 @@ const addProgress = async (req, res) => {
       academicYear
     } = req.body;
 
-    const school = req.user.school._id;
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
 
-    const student = await Student.findById(studentId);
-    const subject = await Subject.findById(subjectId);
+    if (!school) {
+      return res.status(400).json(formatResponse(false, 'User school context missing'));
+    }
 
-    if (!student || !subject)
-      return res.status(404).json(formatResponse(false, "Invalid student/subject"));
+    if (!studentId || !subjectId || !type || !title || marksObtained == null || totalMarks == null || !academicYear) {
+      return res.status(400).json(formatResponse(false, 'Missing required fields'));
+    }
 
-    if (student.school.toString() !== school.toString())
-      return res.status(403).json(formatResponse(false, "Different school"));
+    const marks = Number(marksObtained);
+    const total = Number(totalMarks);
+    if (!Number.isFinite(marks) || !Number.isFinite(total) || total <= 0 || marks < 0 || marks > total) {
+      return res.status(400).json(formatResponse(false, 'Invalid marks data'));
+    }
 
-    const percentage = (marksObtained / totalMarks) * 100;
+    const validated = await getValidStudentAndSubject({ studentId, subjectId, schoolId: school });
+    if (validated.error) {
+      return res.status(validated.status).json(validated.error);
+    }
+    const { student, subject } = validated;
+
+    if (role === 'teacher') {
+      const canUseSubject = await ensureTeacherCanUseSubject(req.user._id, subject);
+      if (!canUseSubject) {
+        return res.status(403).json(formatResponse(false, 'Teacher can add performance only for assigned subjects'));
+      }
+    }
+
+    const percentage = (marks / total) * 100;
     const grade = getGrade(percentage);
 
     const prog = await Progress.create({
       student: studentId,
       subject: subjectId,
-      class: student.class,
+      class: student.class?._id || student.class,
       school,
       type,
       title,
-      marksObtained,
-      totalMarks,
+      marksObtained: marks,
+      totalMarks: total,
       percentage,
       grade,
       academicYear,
@@ -164,28 +220,183 @@ const getStudentPerformance = async (req, res) => {
   try {
     const { studentId } = req.params;
     const { type, subjectId, academicYear } = req.query;
-    const school = req.user.school._id;
+    const school = getSchoolId(req.user);
     const student = await Student.findById(studentId).populate('user', '_id name school');
     
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
 
-    if(school.toString() !== student.school.toString()) {
+    if(!student.user?.school || school.toString() !== student.user.school.toString()) {
       return res.status(403).json(formatResponse(false, "Student is not belong to your school"));
     }
 
-    const filter = { student: studentId };
+    const filter = { student: studentId, school };
 
     if (type) filter.type = type;
     if (subjectId) filter.subject = subjectId;
     if (academicYear) filter.academicYear = academicYear;
 
     const data = await Progress.find(filter)
-      .populate('subject', 'name')
+      .populate('subject', 'name code class teacher')
+      .populate({ path: 'class', select: 'name section grade' })
       .sort({ date: -1 });
 
     return res.status(200).json(formatResponse(true, "Student performance fetched successfully", data));
   } catch (e) {
     return res.status(500).json(formatResponse(false, "Error fetching student performance", null, e.message));
+  }
+};
+
+const getProgressById = async (req, res) => {
+  try {
+    const school = getSchoolId(req.user);
+    const { progressId } = req.params;
+
+    const item = await Progress.findById(progressId)
+      .populate('subject', 'name code class teacher')
+      .populate('student', 'studentId rollNumber class')
+      .populate('class', 'name section grade');
+
+    if (!item) return res.status(404).json(formatResponse(false, 'Performance record not found'));
+    if (item.school.toString() !== school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Record is outside your school'));
+    }
+
+    return res.status(200).json(formatResponse(true, 'Performance record fetched successfully', item));
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error fetching performance record', null, e.message));
+  }
+};
+
+const updateProgress = async (req, res) => {
+  try {
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+    const { progressId } = req.params;
+    const { subjectId, type, title, marksObtained, totalMarks, academicYear, remarks, date } = req.body;
+
+    const item = await Progress.findById(progressId)
+      .populate('student', 'class user')
+      .populate({ path: 'subject', select: 'class teacher school' });
+    if (!item) return res.status(404).json(formatResponse(false, 'Performance record not found'));
+    if (item.school.toString() !== school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Record is outside your school'));
+    }
+
+    let nextSubject = item.subject;
+    if (subjectId && subjectId.toString() !== item.subject?._id?.toString()) {
+      const validated = await getValidStudentAndSubject({
+        studentId: item.student?._id || item.student,
+        subjectId,
+        schoolId: school,
+      });
+      if (validated.error) return res.status(validated.status).json(validated.error);
+      nextSubject = validated.subject;
+      item.subject = subjectId;
+    }
+
+    if (role === 'teacher') {
+      const canUseSubject = await ensureTeacherCanUseSubject(req.user._id, nextSubject);
+      if (!canUseSubject) {
+        return res.status(403).json(formatResponse(false, 'Teacher can update performance only for assigned subjects'));
+      }
+    }
+
+    if (type) item.type = type;
+    if (title) item.title = title;
+    if (academicYear) item.academicYear = academicYear;
+    if (remarks != null) item.remarks = remarks;
+    if (date) item.date = date;
+
+    if (marksObtained != null) item.marksObtained = Number(marksObtained);
+    if (totalMarks != null) item.totalMarks = Number(totalMarks);
+
+    if (!Number.isFinite(item.totalMarks) || item.totalMarks <= 0 || item.marksObtained < 0 || item.marksObtained > item.totalMarks) {
+      return res.status(400).json(formatResponse(false, 'Invalid marks data'));
+    }
+
+    item.percentage = (item.marksObtained / item.totalMarks) * 100;
+    item.grade = getGrade(item.percentage);
+    item.updatedBy = req.user._id;
+
+    await item.save();
+    return res.status(200).json(formatResponse(true, 'Performance updated successfully', item));
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error updating performance', null, e.message));
+  }
+};
+
+const deleteProgress = async (req, res) => {
+  try {
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+    const { progressId } = req.params;
+
+    const item = await Progress.findById(progressId).populate('subject', 'teacher');
+    if (!item) return res.status(404).json(formatResponse(false, 'Performance record not found'));
+    if (item.school.toString() !== school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Record is outside your school'));
+    }
+
+    if (role === 'teacher') {
+      const canUseSubject = await ensureTeacherCanUseSubject(req.user._id, item.subject);
+      if (!canUseSubject) {
+        return res.status(403).json(formatResponse(false, 'Teacher can delete performance only for assigned subjects'));
+      }
+    }
+
+    await item.deleteOne();
+    return res.status(200).json(formatResponse(true, 'Performance deleted successfully'));
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error deleting performance', null, e.message));
+  }
+};
+
+const getValidSubjectsForStudent = async (req, res) => {
+  try {
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+    const { studentId } = req.params;
+
+    const student = await Student.findById(studentId)
+      .populate({ path: 'user', select: '_id school name' })
+      .populate({ path: 'class', select: '_id name section grade' });
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+
+    if (!student.user?.school || student.user.school.toString() !== school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Student is not in your school'));
+    }
+
+    if (!student.class?._id) {
+      return res.status(400).json(formatResponse(false, 'Student is not assigned to a class'));
+    }
+
+    const query = {
+      class: student.class._id,
+      school,
+    };
+
+    if (role === 'teacher') {
+      const teacher = await Teacher.findOne({ user: req.user._id }).select('_id');
+      if (!teacher) {
+        return res.status(403).json(formatResponse(false, 'Teacher profile not found'));
+      }
+      query.teacher = teacher._id;
+    }
+
+    const subjects = await Subject.find(query)
+      .select('_id name code maxMarks class teacher')
+      .sort({ name: 1 });
+
+    return res.status(200).json(formatResponse(true, 'Valid subjects fetched successfully', {
+      student: {
+        _id: student._id,
+        name: student.user?.name,
+        class: student.class,
+      },
+      subjects,
+    }));
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error fetching valid subjects', null, e.message));
   }
 };
 
@@ -219,12 +430,18 @@ const getStudentPerformance = async (req, res) => {
 // };
 
 const getSubjectPerformance = async (req, res) => {
-  const { subjectId } = req.params;
+  try {
+    const { subjectId } = req.params;
+    const school = getSchoolId(req.user);
 
-  const data = await Progress.find({ subject: subjectId })
-    .populate('student', 'studentId');
+    const data = await Progress.find({ subject: subjectId, school })
+      .populate('student', 'studentId rollNumber class')
+      .sort({ date: -1 });
 
-  res.json(data);
+    return res.status(200).json(formatResponse(true, 'Subject performance fetched successfully', data));
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error fetching subject performance', null, e.message));
+  }
 };
 
 const generateStudentReport = async (req, res) => {
@@ -259,7 +476,7 @@ const getStudentResultByYear = async (req, res) => {
     const student = await Student.findById(studentId).populate('user' , '_id name school');
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
 
-    if (student.school.toString() !== school.toString())
+    if (!student.user?.school || student.user.school.toString() !== school.toString())
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
 
     // ===== FILTER =====
@@ -375,7 +592,7 @@ const generateAdvancedReport = async (req, res) => {
 
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
 
-    if(school.toString() !== student.school.toString()) {
+    if(!student.user?.school || school.toString() !== student.user.school.toString()) {
       return res.status(403).json(formatResponse(false, "Student is not belong to your school"));
     }
 
@@ -503,7 +720,7 @@ const generateStyledReport = async (req, res) => {
     
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
 
-    if(school.toString() !== student.school.toString()) {
+    if(!student.user?.school || school.toString() !== student.user.school.toString()) {
       return res.status(403).json(formatResponse(false, "Student is not belong to your school"));
     }
 
@@ -547,7 +764,7 @@ const generateCBSEReport = async (req, res) => {
 
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
 
-    if(school.toString() !== student.school.toString()) {
+    if(!student.user?.school || school.toString() !== student.user.school.toString()) {
       return res.status(403).json(formatResponse(false, "Student is not belong to your school"));
     }
 
@@ -597,7 +814,7 @@ const buildCBSEData = async (studentId, academicYear = "2025-26") => {
     const classData = await Class.findById(student.class);
 
     // ===== SCHOOL =====
-    const school = await School.findById(student.school);
+    const school = await School.findById(student.user?.school);
 
     // ===== PROGRESS =====
     const progress = await Progress.find({
@@ -700,7 +917,7 @@ const buildCBSEData = async (studentId, academicYear = "2025-26") => {
     // ===== FINAL OBJECT =====
     return {
       school: {
-        name: school.name,
+        name: school?.schoolName || school?.name || 'School',
         address: school.address
       },
 
@@ -749,4 +966,21 @@ const buildCBSEData = async (studentId, academicYear = "2025-26") => {
 };
 
 
-module.exports = {generateCBSEReport,buildCBSEData, generateAdvancedReport,addProgress,getClassResult ,getSubjectRanking,getSubjectPerformance ,getGrade,generateAdvancedReport,getStudentPerformance,generateStudentReport,getStudentResultByYear,generateStyledReport};
+module.exports = {
+  addProgress,
+  updateProgress,
+  deleteProgress,
+  getProgressById,
+  getValidSubjectsForStudent,
+  getStudentPerformance,
+  getClassResult,
+  getSubjectRanking,
+  getSubjectPerformance,
+  getStudentResultByYear,
+  generateStudentReport,
+  generateAdvancedReport,
+  generateStyledReport,
+  generateCBSEReport,
+  buildCBSEData,
+  getGrade,
+};

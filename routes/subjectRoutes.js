@@ -4,7 +4,8 @@ const {
   getSubjectsByClass,
   assignSubjectToClass,
   updateSubject,
-  deleteSubject
+  deleteSubject,
+  getSubject
 } = require("../controllers/subjectCtrl");
 
 const { validateUser } = require("../middleware/auth");
@@ -25,6 +26,7 @@ router.get("/class/:classId", allow("admin", "teacher", "student"), getSubjectsB
 
 // UPDATE SUBJECT
 router.put("/:id", allow("admin", "teacher"), updateSubject);
+router.get("/all", allow("admin", "teacher"), getSubject);
 
 // DELETE SUBJECT
 router.delete("/:id", allow("admin"), deleteSubject);

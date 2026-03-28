@@ -12,6 +12,7 @@ const r = express.Router();
 
 r.get('/me', validateUser, getMe);
 r.put('/me', validateUser, updateProfile);
+r.put('/update', validateUser, updateProfile);
 r.post(
   '/me/avatar',
   validateUser,

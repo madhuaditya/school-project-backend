@@ -6,26 +6,66 @@ const SENSITIVE_FIELDS = [
   "__v"
 ];
 
-const sanitize = (data) => {
-  if (!data) return data;
+const toPlainObject = (value) => {
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (typeof value.toObject === "function") {
+    try {
+      return value.toObject({
+        getters: false,
+        virtuals: false,
+        flattenMaps: true,
+      });
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+};
+
+const sanitize = (data, seen = new WeakSet()) => {
+  if (data == null) return data;
+
+  if (typeof data !== "object") {
+    return data;
+  }
+
+  if (data instanceof Date) {
+    return data;
+  }
+
+  if (Buffer.isBuffer(data)) {
+    return data;
+  }
 
   if (Array.isArray(data)) {
-    return data.map(sanitize);
-  }
-
-  if (typeof data === "object") {
-    const newObj = {};
-
-    for (let key in data) {
-      if (SENSITIVE_FIELDS.includes(key)) continue;
-
-      newObj[key] = sanitize(data[key]);
+    if (seen.has(data)) {
+      return null;
     }
-
-    return newObj;
+    seen.add(data);
+    return data.map((item) => sanitize(item, seen));
   }
 
-  return data;
+  const source = toPlainObject(data);
+  if (!source || typeof source !== "object") {
+    return source;
+  }
+
+  if (seen.has(source)) {
+    return null;
+  }
+  seen.add(source);
+
+  const newObj = {};
+  for (const key of Object.keys(source)) {
+    if (SENSITIVE_FIELDS.includes(key)) continue;
+    newObj[key] = sanitize(source[key], seen);
+  }
+
+  return newObj;
 };
 
 const sanitizeResponse = (req, res, next) => {

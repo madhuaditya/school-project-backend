@@ -38,6 +38,7 @@ const createClass = async (req, res) => {
     return res.status(201).json(formatResponse(true, "Class created successfully", cls));
 
   } catch (e) {
+    console.log("Error creating class: ", e);
     return res.status(500).json(formatResponse(false, "Error creating class", null, e.message));
   }
 };
@@ -159,20 +160,24 @@ const getClassById = async (req, res) => {
       .populate('subjects', '_id name')
       .lean();
 
+      cls.classTeacher = { ...cls.classTeacher, name: cls.classTeacher?.user?.name, email: cls.classTeacher?.user?.email, phone: cls.classTeacher?.user?.phone };
+
     if (!cls) return res.status(404).json(formatResponse(false, "Class not found"));
 
     if(cls.school.toString() !== req.user.school._id.toString())
       return res.status(403).json(formatResponse(false, "Class not in your school"));
 
-    const students = await Student.find({ class: id })
+    const students = await Student.find({ class: cls._id })
       .populate({
         path: 'user',
         select: '_id name email phone'
       });
 
+      // console.log("Students in class: ", students);
+
     return res.status(200).json(formatResponse(true, "Class fetched successfully", {
       ...cls,
-      students
+      students : [...students.map(s => ({ _id: s._id, name: s.user.name, email: s.user.email, phone: s.user.phone , rollNumber : s.rollNumber , user: s.user })) ]
     }));
 
   } catch (e) {
@@ -182,6 +187,8 @@ const getClassById = async (req, res) => {
 
 const getClasses = async (req, res) => {
   try {
+    const schoolId = req.user.school._id;
+    // console.log("schoolId ", schoolId);
     const classes = await Class.find({ school: req.user.school._id })
       .populate({
         path: 'classTeacher',
@@ -193,8 +200,21 @@ const getClasses = async (req, res) => {
       .populate('subjects', '_id name')
       .lean();
 
-    return res.status(200).json(formatResponse(true, "Classes fetched successfully", classes));
+    const classIds = classes.map((cls) => cls._id);
+    const studentCounts = await Student.aggregate([
+      { $match: { class: { $in: classIds } } },
+      { $group: { _id: '$class', count: { $sum: 1 } } },
+    ]);
+
+    const countMap = new Map(studentCounts.map((entry) => [entry._id.toString(), entry.count]));
+    const classesWithCount = classes.map((cls) => ({
+      ...cls,
+      studentCount: countMap.get(cls._id.toString()) || 0,
+    }));
+
+    return res.status(200).json(formatResponse(true, "Classes fetched successfully", classesWithCount));
   } catch (e) {
+    console.log("Error fetching classes: ", e);
     return res.status(500).json(formatResponse(false, "Error fetching classes", null, e.message));
   }
 };

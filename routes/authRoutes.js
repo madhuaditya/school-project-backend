@@ -19,7 +19,8 @@ const {
   updateUser,
   deleteTemp,
   deletePermanently,
-  reinistateUser
+  reinistateUser,
+  getAllAdminsInSchool
 } = require("../controllers/authCtrl");
 const { validateRegister,validateUpdate, validateLogin,validateSChoolRegister } = require("../middleware/validate");
 const { allow } = require("../middleware/role");
@@ -45,6 +46,7 @@ r.post("/update-user/:id", validateUser,validateUpdate, allow("admin",'teacher',
 r.post("/delete-user/:id", validateUser, allow("admin"), deleteTemp);
 r.post("/delete-user-permanent/:id", validateUser, allow("admin"), deletePermanently);
 r.post("/reinstate-user/:id", validateUser, allow("admin"), reinistateUser);
+r.get("/admin/all", validateUser, allow("admin"), getAllAdminsInSchool);
 
 // School routes
 r.post("/school/register", validateSChoolRegister, registerSchool);

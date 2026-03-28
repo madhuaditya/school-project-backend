@@ -27,9 +27,10 @@ router.post("/assign-student", allow("admin", "teacher"), assignStudent);
 // REMOVE STUDENT
 router.post("/remove-student", allow("admin", "teacher"), removeStudent);
 
+// GET ALL CLASSES
+router.get("/all", allow('admin','teacher'), getClasses);
+
 // GET CLASS
 router.get("/:id", allow("admin", "teacher", "student"), getClassById);
-
-router.get("/all", allow('admin','teacher'),getClasses)
 
 module.exports = router;

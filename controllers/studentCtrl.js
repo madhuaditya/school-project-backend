@@ -93,24 +93,24 @@ const getStudentById = async (req, res) => {
     const student = await Student.findById(id)
       .populate({
         path: 'user',
-        select: 'name email phone image school'
+        select: '-password -refreshToken -resetToken -resetTokenExp -v',
       })
       .populate({
         path: 'class',
         select: 'name grade section'
-      })
-      .populate({
-        path: 'subjects',
-        select: 'name code maxMarks'
       });
 
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
+
+    if (!student.user || !student.user.school || !req.user || !req.user.school || !req.user.school._id) {
+      return res.status(400).json(formatResponse(false, "School context missing"));
+    }
 
     // Check school authorization
     if (student.user.school.toString() !== req.user.school._id.toString())
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
 
-    return res.status(200).json(formatResponse(true, "Student fetched successfully", student));
+    return res.status(200).json(formatResponse(true, "Student fetched successfully", { ...student.user.toObject(), ...student.toObject() }));
 
   } catch (e) {
     return res.status(500).json(formatResponse(false, "Error fetching student", null, e.message));

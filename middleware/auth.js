@@ -3,7 +3,9 @@ const User = require('../models/user');
 const School = require('../models/school');
 const mongoose = require('mongoose');
 const validateUser = (req, res, next) => {
-  const h = req.headers.authorization;
+  const queryToken = req.query?.token;
+  const h = req.headers.authorization || (queryToken ? `Bearer ${queryToken}` : undefined);
+  // console.log("auth header ", h);
   if (!h || !h.startsWith('Bearer '))
     return res.sendStatus(401);
 

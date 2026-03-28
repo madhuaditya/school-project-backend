@@ -7,6 +7,7 @@ const { genAT, genRT } = require('../utils/jwt');
 const mongoose = require('mongoose');
 const VALID_ROLES = ['admin', 'teacher', 'student', 'staff', 'school'];
 const Teacher = require('../models/teacher');
+const Admin = require('../models/admin');
 const { validateStudentAndAdminofSchool } = require('../middleware/ValidateRelation');
 
 // ==================== RESPONSE FORMAT ====================
@@ -78,6 +79,10 @@ const register = async (req, res) => {
       phone,
       image,
       password,
+      address: req.body.address || '',
+      city: req.body.city || '',
+      state: req.body.state || '',
+      pinCode: req.body.pinCode || '',
       role: roleDoc._id,
       school: sch._id,
       createdBy: adminInfo._id,
@@ -103,9 +108,7 @@ const register = async (req, res) => {
         _id: u._id,
         user: u._id,
         studentId: req.body.studentId,
-        gradeLevel: req.body.gradeLevel,
         rollNumber: req.body.rollNumber,
-        section: req.body.section,
         dateOfAdmission: req.body.dateOfAdmission,
         fatherName: req.body.fatherName,
         motherName: req.body.motherName,
@@ -127,6 +130,7 @@ const register = async (req, res) => {
     
     return res.status(201).json(formatResponse(true, 'User created successfully', { userId: u._id }));
   } catch (error) {
+    console.log("Error registering user: ", error);
     return res.status(500).json(formatResponse(false, 'Error registering user', null, error.message));
   }
 };
@@ -237,6 +241,73 @@ const reinistateUser = async (req, res) => {
     return res.status(200).json(formatResponse(true, 'User reinstated successfully', userToDelete));
   } catch (error) {
     return res.status(500).json(formatResponse(false, 'Error reinstating user', null, error.message));
+  }
+};
+
+const getAllAdminsInSchool = async (req, res) => {
+  try {
+    const currentUser = req.user;
+    const currentRole = currentUser?.role?.role || currentUser?.role;
+
+    if (!currentUser || currentRole !== 'admin') {
+      return res.status(403).json(formatResponse(false, 'Only admins can access admins list'));
+    }
+
+    const schoolId = currentUser.school?._id || currentUser.school;
+    if (!schoolId) {
+      return res.status(400).json(formatResponse(false, 'Admin is not mapped to a school'));
+    }
+
+    const adminRole = await Role.findOne({ role: 'admin' }).select('_id');
+    if (!adminRole) {
+      return res.status(400).json(formatResponse(false, 'Admin role not found'));
+    }
+
+    const admins = await User.find({
+      school: schoolId,
+      role: adminRole._id,
+      active: true,
+    })
+      .select('_id name email phone image city state address pinCode school active role createdAt')
+      .populate('school', '_id schoolName')
+      .populate('role', 'role')
+      .sort({ createdAt: -1 });
+
+    formattedAdmins = admins.map(a => ({
+     user:{
+       _id: a._id,
+      name: a.name,
+      email: a.email,
+      phone: a.phone,
+      image: a.image,
+      city: a.city,
+      state: a.state,
+      address: a.address,
+      pinCode: a.pinCode,
+      school: a.school,
+      active: a.active,
+      role: a.role,
+      createdAt: a.createdAt,
+     },
+      _id: a._id,
+      name: a.name,
+      email: a.email,
+      phone: a.phone,
+      image: a.image,
+      city: a.city,
+      state: a.state,
+      address: a.address,
+      pinCode: a.pinCode,
+      school: a.school,
+      active: a.active,
+      role: a.role,
+      createdAt: a.createdAt,
+    }));
+    return res
+      .status(200)
+      .json(formatResponse(true, 'Admins fetched successfully', formattedAdmins ));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error fetching admins', null, error.message));
   }
 };
 
@@ -558,8 +629,18 @@ const logoutSchool = async (req, res) => {
   }
 };
 
-const sendSchoolForgotPasswordEmail = async (sch) => {
+const sendSchoolForgotPasswordEmail = async (req, res) => {
   try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json(formatResponse(false, 'Email is required'));
+    }
+
+    const sch = await School.findOne({ email });
+    if (!sch) {
+      return res.status(404).json(formatResponse(false, 'School not found'));
+    }
+
     const token = jwt.sign(
       { _id: sch._id },
       process.env.SCHOOL_RESET_TOKEN_SECRET,
@@ -574,8 +655,10 @@ const sendSchoolForgotPasswordEmail = async (sch) => {
       'School Password Reset',
       `<p>Click below to reset your school's password:</p><a href="${resetUrl}">${resetUrl}</a>`
     );
+
+    return res.status(200).json(formatResponse(true, 'School reset link sent to email'));
   } catch (error) {
-    console.error('Error sending school forgot password email:', error.message);
+    return res.status(500).json(formatResponse(false, 'Error sending school reset link', null, error.message));
   }
 };
 
@@ -586,7 +669,10 @@ const resetPasswordSchool = async (req, res) => {
     
     if(password.length < 8) return res.status(400).json(formatResponse(false, 'Password must be at least 8 characters long'));
 
-    const sch = await School.findOne({ refreshToken: token });
+    const sch = await School.findOne({
+      resetToken: token,
+      resetTokenExp: { $gt: Date.now() },
+    });
     if (!sch) return res.status(400).json(formatResponse(false, 'Invalid or expired token'));
 
     sch.password = password;
@@ -616,6 +702,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   changeRole,
+  getAllAdminsInSchool,
   updateUser,
   deleteTemp,
   deletePermanently,

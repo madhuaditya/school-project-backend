@@ -101,7 +101,45 @@ const getTeacherById = async (req, res) => {
   }
 };
 
+// ================= GET ALL TEACHERS IN SCHOOL =================
+const getAllTeachers = async (req, res) => {
+  try {
+    const adminInfo = req.user;
+
+    const teachers = await Teacher.find()
+      .populate({
+        path: 'user',
+        select: 'name email phone image school city state address pinCode',
+      })
+      .populate({
+        path: 'teachSubjects',
+        select: 'name code',
+      })
+      .populate({
+        path: 'classTeacher',
+        select: 'name grade section',
+      })
+      .populate({
+        path: 'teachSclass',
+        select: 'name grade section',
+      });
+
+    const schoolTeachers = teachers.filter(
+      (teacher) => teacher?.user?.school?.toString() === adminInfo.school._id.toString()
+    );
+
+    return res
+      .status(200)
+      .json(formatResponse(true, 'Teachers fetched successfully', schoolTeachers));
+  } catch (e) {
+    return res
+      .status(500)
+      .json(formatResponse(false, 'Error fetching teachers', null, e.message));
+  }
+};
+
 module.exports = {
   addTeacherToSubject,
-  getTeacherById
+  getTeacherById,
+  getAllTeachers,
 };

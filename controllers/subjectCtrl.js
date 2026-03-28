@@ -82,6 +82,26 @@ const getSubjectsByClass = async (req, res) => {
   }
 };
 
+const getSubject = async (req, res) => {
+  try {
+    const schoolId = req.user.school._id;
+    if (!schoolId) {
+      return res.status(400).json(formatResponse(false, 'School context not found'));
+    }
+    const subjects = await Subject.find({ school: schoolId })
+      .populate('class', 'name')
+      .populate({ path: 'teacher', populate: { path: 'user', select: '_id name email phone' } })
+      .populate('school', '_id name')
+      .populate('class', '_id name');
+    if (!subjects) {
+      return res.status(404).json(formatResponse(false, 'No subjects found for your school',[]));
+    }
+    return res.status(200).json(formatResponse(true, "Subjects fetched successfully", subjects));
+  }catch (e) {
+    return res.status(500).json(formatResponse(false, "Error fetching subjects", null, e.message));
+  }
+}
+
 // ================= ASSIGN SUBJECT TO CLASS =================
 const assignSubjectToClass = async (req, res) => {
   try {
@@ -116,12 +136,30 @@ const assignSubjectToClass = async (req, res) => {
         return res.status(403).json(formatResponse(false, "You can only add your own subjects to classes"));
     }
 
+    const prevClassId = subject.class ? subject.class.toString() : null;
+
+    // If subject already assigned to a class, remove it from that class first
+    if (prevClassId && prevClassId !== classId) {
+      console.log(`Subject ${subjectId} is being reassigned from class ${prevClassId} to class ${classId}`);
+      const prevClass = await Class.findById(prevClassId);
+      if (prevClass) {
+        prevClass.subjects.pull(subject._id);
+        await prevClass.save();
+      }
+    }
+
+
     // Add subject to class if not already present
     if (!cls.subjects.includes(subjectId)) {
       cls.subjects.push(subjectId);
       cls.updatedBy = adminInfo._id;
       await cls.save();
     }
+
+    subject.class = classId;
+    subject.updatedBy = adminInfo._id;
+    await subject.save();
+    
 
     return res.status(200).json(formatResponse(true, "Subject assigned to class successfully", {
       subject: subject._id,
@@ -190,5 +228,6 @@ module.exports = {
   getSubjectsByClass,
   assignSubjectToClass,
   updateSubject,
-  deleteSubject
+  deleteSubject,
+  getSubject
 };

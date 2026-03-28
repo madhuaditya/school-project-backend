@@ -1,6 +1,10 @@
 const express = require("express");
 const {
   addProgress,
+  updateProgress,
+  deleteProgress,
+  getProgressById,
+  getValidSubjectsForStudent,
   getStudentPerformance,
   getClassResult,
   getSubjectPerformance,
@@ -20,6 +24,30 @@ router.use(validateUser);
 
 // ADD
 router.post("/create", allow("admin", "teacher"), addProgress);
+
+// VALID SUBJECTS FOR A STUDENT (used for add/update forms)
+router.get(
+  "/valid-subjects/:studentId",
+  allow("admin", "teacher"),
+  getValidSubjectsForStudent,
+);
+
+// GET / UPDATE / DELETE SINGLE PERFORMANCE
+router.get(
+  "/:progressId",
+  allow("admin", "teacher"),
+  getProgressById,
+);
+router.put(
+  "/:progressId",
+  allow("admin", "teacher"),
+  updateProgress,
+);
+router.delete(
+  "/:progressId",
+  allow("admin", "teacher"),
+  deleteProgress,
+);
 
 // STUDENT PERFORMANCE
 router.get(

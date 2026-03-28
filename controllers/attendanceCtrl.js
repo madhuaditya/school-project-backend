@@ -487,22 +487,24 @@ const getTeacherAttendance = async (req, res) => {
 const getTodayAttendace = async (req, res) => {
   try {
     const targetUser = req.params.id;
+    // console.log("Target user for today's attendance: ", targetUser);
     const currentUserId = req.user._id;
     const currentUserRole = req.user.role.role;
+    // console.log("Current user role: ", currentUserRole);
     const currentUserSchool = req.user.school._id;
     const today = new Date();
     const startOfDay = new Date(today.setHours(0, 0, 0, 0));
     const endOfDay = new Date(today.setHours(23, 59, 59, 999));
 
     const user = await User.findById(targetUser).populate('role', 'role');
-
+    // console.log("User for today's attendance: ", user.name, " with role ", user.role.role);
     if(!user) {
       return res.status(404).json(formatResponse(false, "User not found"));
     }
 
     // Build filter
     const filter = {
-      user: currentUserId,
+      user: targetUser,
       school: currentUserSchool,
       date: {
         $gte: startOfDay,
@@ -515,6 +517,8 @@ const getTodayAttendace = async (req, res) => {
         const attendanceRecords = await Attendance.find(filter)
           .populate("user", "_id name email")
           .sort({ date: -1 });
+
+          // console.log("Attendance records for today: ", attendanceRecords);
 
         if (attendanceRecords.length === 0) {
           return res.status(404).json(formatResponse(false, "No attendance records found for today"));
@@ -561,6 +565,7 @@ const getTodayAttendace = async (req, res) => {
         const attendanceRecords = await Attendance.find(filter)
           .populate("user", "_id name email")
           .sort({ date: -1 });
+          // console.log("Attendance records for today: ", attendanceRecords);
           
         if (attendanceRecords.length === 0) {
           return res.status(404).json(formatResponse(false, "No attendance records found for today"));

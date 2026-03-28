@@ -11,14 +11,57 @@ const formatResponse = (success, msg, data = null, error = null) => {
   };
 };
 
+const toPlainId = (value) => {
+  if (!value) return value;
+  if (typeof value === 'string') return value;
+  if (typeof value?.toString === 'function' && value.toString() !== '[object Object]') {
+    return value.toString();
+  }
+
+  // Handle ObjectId-like structures serialized as buffer payloads.
+  if (value?.buffer?.data && Array.isArray(value.buffer.data)) {
+    return value.buffer.data.map((b) => Number(b).toString(16).padStart(2, '0')).join('');
+  }
+
+  return value;
+};
+
+const normalizeProfilePayload = (profile) => {
+  if (!profile) return profile;
+
+  const normalized = {
+    ...profile,
+    _id: toPlainId(profile._id),
+  };
+
+  if (normalized.role && typeof normalized.role === 'object') {
+    normalized.role = {
+      ...normalized.role,
+      _id: toPlainId(normalized.role._id),
+    };
+  }
+
+  if (normalized.school && typeof normalized.school === 'object') {
+    normalized.school = {
+      ...normalized.school,
+      _id: toPlainId(normalized.school._id),
+    };
+  }
+
+  return normalized;
+};
+
 // GET OWN PROFILE
 const getMe = async (req, res) => {
   try {
-    const u = await User.findById(req.user._id).select('-password -refreshToken -resetToken -resetTokenExp -__v');
+    const u = await User.findById(req.user._id)
+      .select('-password -refreshToken -resetToken -resetTokenExp -__v')
+      .lean();
     if (!u) return res.status(404).json(formatResponse(false, "User not found"));
     
-    return res.status(200).json(formatResponse(true, "Profile fetched successfully", u));
+    return res.status(200).json(formatResponse(true, "Profile fetched successfully", normalizeProfilePayload(u)));
   } catch (error) {
+    console.error("Error in getMe:", error);
     return res.status(500).json(formatResponse(false, "Error fetching profile", null, error.message));
   }
 };
@@ -27,27 +70,39 @@ const getMe = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { name, phone, address, city, state, pinCode } = req.body;
+    const nextName = typeof name === 'string' ? name.trim() : undefined;
+    const nextPhone = typeof phone === 'string' ? phone.trim() : undefined;
+    const nextAddress = typeof address === 'string' ? address.trim() : undefined;
+    const nextCity = typeof city === 'string' ? city.trim() : undefined;
+    const nextState = typeof state === 'string' ? state.trim() : undefined;
+    const nextPinCode = typeof pinCode === 'string' ? pinCode.trim() : undefined;
     
-    if(name && name.length < 3) return res.status(400).json(formatResponse(false, 'Name must be at least 3 characters'));
-    if(phone && !/^\d{10}$/.test(phone)) return res.status(400).json(formatResponse(false, 'Invalid phone number'));
-    if(address && address.length < 5) return res.status(400).json(formatResponse(false, 'Address must be at least 5 characters'));
-    if(city && city.length < 2) return res.status(400).json(formatResponse(false, 'City must be at least 2 characters'));
-    if(state && state.length < 2) return res.status(400).json(formatResponse(false, 'State must be at least 2 characters'));
-    if(pinCode && !/^\d{6}$/.test(pinCode)) return res.status(400).json(formatResponse(false, 'Invalid pin code'));
+    if(nextName && nextName.length < 3) return res.status(400).json(formatResponse(false, 'Name must be at least 3 characters'));
+    if(nextPhone && !/^\d{10}$/.test(nextPhone)) return res.status(400).json(formatResponse(false, 'Invalid phone number'));
+    if(nextAddress && nextAddress.length < 5) return res.status(400).json(formatResponse(false, 'Address must be at least 5 characters'));
+    if(nextCity && nextCity.length < 2) return res.status(400).json(formatResponse(false, 'City must be at least 2 characters'));
+    if(nextState && nextState.length < 2) return res.status(400).json(formatResponse(false, 'State must be at least 2 characters'));
+    if(nextPinCode && !/^\d{6}$/.test(nextPinCode)) return res.status(400).json(formatResponse(false, 'Invalid pin code'));
 
     const u = await User.findById(req.user._id);
     if (!u) return res.status(404).json(formatResponse(false, "User not found"));
 
-    if (name) u.name = name;
-    if (phone) u.phone = phone;
-    if (address) u.address = address;
-    if (city) u.city = city;
-    if (state) u.state = state;
-    if (pinCode) u.pinCode = pinCode;
+    if (nextName !== undefined) u.name = nextName;
+    if (nextPhone !== undefined) u.phone = nextPhone;
+    if (nextAddress !== undefined) u.address = nextAddress;
+    if (nextCity !== undefined) u.city = nextCity;
+    if (nextState !== undefined) u.state = nextState;
+    if (nextPinCode !== undefined) u.pinCode = nextPinCode;
 
     await u.save();
+
+    const updatedProfile = await User.findById(req.user._id)
+      .select('-password -refreshToken -resetToken -resetTokenExp -__v')
+      .lean();
     
-    return res.status(200).json(formatResponse(true, 'Profile updated successfully'));
+    return res.status(200).json(
+      formatResponse(true, 'Profile updated successfully', normalizeProfilePayload(updatedProfile))
+    );
   } catch (error) {
     return res.status(500).json(formatResponse(false, "Error updating profile", null, error.message));
   }
@@ -93,9 +148,9 @@ const getBasicProfile = async (req, res) => {
 
     if (!requestingUser) return res.status(404).json(formatResponse(false, 'Requesting user not found'));
 
-    const targetUser = await User.findById(id)
+    const targetUser = await User.findById(id) 
       .populate('school', '_id schoolName image')
-      .populate('role', 'role');
+      .populate('role', '_id role');
 
     if (!targetUser) return res.status(404).json(formatResponse(false, 'User not found'));
 
@@ -106,17 +161,22 @@ const getBasicProfile = async (req, res) => {
 
     // If viewing own profile, return full data
     if (req.user._id.toString() === id) {
+      // console.log('User is viewing their own profile, returning full data');
       const fullProfile = await User.findById(id)
-        .select('-password -refreshToken -resetToken -resetTokenExp -__v');
-      return res.status(200).json(formatResponse(true, 'Profile fetched successfully', fullProfile));
+        .select('-password -refreshToken -resetToken -resetTokenExp -__v')
+        .lean();
+      return res.status(200).json(formatResponse(true, 'Profile fetched successfully', normalizeProfilePayload(fullProfile)));
     }
 
     // Otherwise, return limited data: _id, name, email, school, role, image
-    const limitedProfile = await User.findById(id).select('_id name email school role image');
-    await limitedProfile.populate('school', 'schoolName image');
-    await limitedProfile.populate('role', 'role');
+    // console.log('User is viewing another profile, returning limited data');
+    const limitedProfile = await User.findById(id)
+      .select('-email -phone -address -city -state -pinCode -createdAt -updatedAt -__v -password -refreshToken -resetToken -resetTokenExp')
+      .populate('school', '_id schoolName image')
+      .populate('role', '_id role')
+      .lean();
 
-    return res.status(200).json(formatResponse(true, 'Profile fetched successfully', limitedProfile));
+    return res.status(200).json(formatResponse(true, 'Profile fetched successfully', normalizeProfilePayload(limitedProfile)));
   } catch (error) {
     return res.status(500).json(formatResponse(false, 'Error fetching profile', null, error.message));
   }
