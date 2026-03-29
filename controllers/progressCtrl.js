@@ -8,7 +8,7 @@ const puppeteer = require("puppeteer");
 const ejs = require("ejs");
 const path = require("path");
 const School = require("../models/school");
-const Attendance = require("../models/Attendance");
+const Attendance = require("../models/attendance");
 const mongoose = require("mongoose");
 
 // ==================== RESPONSE FORMAT ====================
