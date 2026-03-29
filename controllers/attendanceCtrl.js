@@ -245,7 +245,7 @@ const getAttendance = async (req, res) => {
       .sort({ date: -1 });
 
     if (attendanceRecords.length === 0) {
-      return res.status(404).json(formatResponse(false, "No attendance records found"));
+      return res.status(200).json(formatResponse(false, "No attendance records found"));
     }
 
     // Calculate summary

@@ -17,13 +17,13 @@ const t = nodemailer.createTransport({
 });
 
 const sendMail = async (to, subject, html) => {
-  return ;
-  // await t.sendMail({
-  //   from: `"Schook App" <${process.env.MAIL_USER}>`,
-  //   to,
-  //   subject,
-  //   html,
-  // });
+  // return ;
+  await t.sendMail({
+    from: `"Schook App" <${process.env.MAIL_USER}>`,
+    to,
+    subject,
+    html,
+  });
 };
 
 module.exports = sendMail;

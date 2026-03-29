@@ -12,6 +12,7 @@ const progressRoutes = require('./routes/progressRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const noticeRoutes = require('./routes/noticeRoutes');
 const timeTableRoutes = require('./routes/timeTableRoutes');
+const feedbackRoutes = require('./routes/feedbackRoutes');
 const sanitizeResponse = require("./middleware/sanitizeResponse")
 const profileRoutes = require('./routes/profileRoutes');
 const dotenv = require("dotenv")
@@ -43,6 +44,7 @@ app.use('/api/progress', progressRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/notice', noticeRoutes);
 app.use('/api/timetable', timeTableRoutes);
+app.use('/api/feedback', feedbackRoutes);
 app.use(sanitizeResponse)
 // app.use('/test',testRouts);
 app.use('/api/profile', profileRoutes);

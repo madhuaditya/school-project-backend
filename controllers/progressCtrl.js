@@ -24,6 +24,13 @@ const formatResponse = (success, msg, data = null, error = null) => {
 const getUserRole = (user) => user?.role?.role || user?.role;
 const getSchoolId = (user) => user?.school?._id || user?.school;
 
+const resolveStudentByStudentOrUserId = async (id) => {
+  let student = await Student.findById(id).populate('user', '_id name school').populate('class', '_id name section grade');
+  if (student) return student;
+  student = await Student.findOne({ user: id }).populate('user', '_id name school').populate('class', '_id name section grade');
+  return student;
+};
+
 const ensureTeacherCanUseSubject = async (userId, subject) => {
   const teacher = await Teacher.findOne({ user: userId }).select('_id');
   if (!teacher) return false;
@@ -221,7 +228,8 @@ const getStudentPerformance = async (req, res) => {
     const { studentId } = req.params;
     const { type, subjectId, academicYear } = req.query;
     const school = getSchoolId(req.user);
-    const student = await Student.findById(studentId).populate('user', '_id name school');
+    const role = getUserRole(req.user);
+    const student = await resolveStudentByStudentOrUserId(studentId);
     
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
 
@@ -229,7 +237,11 @@ const getStudentPerformance = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Student is not belong to your school"));
     }
 
-    const filter = { student: studentId, school };
+    if (role === 'student' && student.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json(formatResponse(false, 'Students can view only their own performance'));
+    }
+
+    const filter = { student: student._id, school };
 
     if (type) filter.type = type;
     if (subjectId) filter.subject = subjectId;
@@ -472,18 +484,25 @@ const getStudentResultByYear = async (req, res) => {
     const { academicYear, type, subjectId } = req.query;
 
     const school = req.user.school._id;
+    const role = getUserRole(req.user);
 
-    const student = await Student.findById(studentId).populate('user' , '_id name school');
+    const student = await resolveStudentByStudentOrUserId(studentId);
     if (!student) return res.status(404).json(formatResponse(false, "Student not found"));
 
     if (!student.user?.school || student.user.school.toString() !== school.toString())
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+
+    if (role === 'student' && student.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json(formatResponse(false, 'Students can view only their own performance'));
+    }
 
     // ===== FILTER =====
     const match = {
       student: new mongoose.Types.ObjectId(studentId),
       school: school
     };
+
+    match.student = new mongoose.Types.ObjectId(student._id);
 
     if (academicYear) match.academicYear = academicYear;
     if (type) match.type = type;

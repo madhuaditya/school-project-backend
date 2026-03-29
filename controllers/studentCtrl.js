@@ -89,8 +89,9 @@ const removeStudentFromClass = async (req, res) => {
 const getStudentById = async (req, res) => {
   try {
     const { id } = req.params;
+    const role = req?.user?.role?.role;
 
-    const student = await Student.findById(id)
+    const student = await Student.findOne({ $or: [{ _id: id }, { user: id }] })
       .populate({
         path: 'user',
         select: '-password -refreshToken -resetToken -resetTokenExp -v',
@@ -109,6 +110,10 @@ const getStudentById = async (req, res) => {
     // Check school authorization
     if (student.user.school.toString() !== req.user.school._id.toString())
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+
+    if (role === 'student' && student.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json(formatResponse(false, 'Students can view only their own profile'));
+    }
 
     return res.status(200).json(formatResponse(true, "Student fetched successfully", { ...student.user.toObject(), ...student.toObject() }));
 

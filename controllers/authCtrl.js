@@ -1,5 +1,5 @@
 const User = require('../models/user');
-const Role = require('../models/Role');
+const Role = require('../models/role');
 const School = require('../models/school');
 const jwt = require('jsonwebtoken');
 const sendMail = require('../utils/mailer');
@@ -20,8 +20,17 @@ const formatResponse = (success, msg, data = null, error = null) => {
   };
 };
 
+const createHttpError = (statusCode, message) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
 // REGISTER
 const register = async (req, res) => {
+  const session = await mongoose.startSession();
+  let createdUser = null;
+
   try {
     const { name, email, phone, password, role, school, image } = req.body;
     const adminInfo = req.user;
@@ -35,30 +44,9 @@ const register = async (req, res) => {
 
     if (!VALID_ROLES.includes(role))
       return res.status(400).json(formatResponse(false, 'Invalid role'));
-      
-    const sch = await School.findById(new mongoose.Types.ObjectId(school));
-    if(!school || sch === null){
-      return res.status(400).json(formatResponse(false, 'Invalid school'));
-    }
-    
-    let ex = null;
-    if(!!email){
-      ex = await User.findOne({email});
-    } else if(!!phone){
-      ex = await User.findOne({ phone});
-    }
-    
-    if (ex) return res.status(409).json(formatResponse(false, 'User already exists'));
-    
-    const roleDoc = await Role.findOne({ role });
-    if (!roleDoc) return res.status(400).json(formatResponse(false, 'Role not found'));
 
-    if((adminInfo.schoolName === null) && sch._id.toString() !== adminInfo.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, 'Cannot assign user to a different school'));
-    }
-    
-    if((adminInfo.schoolName !== null) && sch._id.toString() !== adminInfo.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, 'Cannot assign user to a different school'));
+    if (!school || !mongoose.Types.ObjectId.isValid(school)) {
+      return res.status(400).json(formatResponse(false, 'Invalid school'));
     }
 
     if(role === 'teacher' && adminInfo.role.role === 'teacher') {
@@ -72,66 +60,114 @@ const register = async (req, res) => {
     if(role === 'staff' && adminInfo.role.role === 'teacher') {
       return res.status(403).json(formatResponse(false, 'Teachers cannot create other staff'));
     }
-    
-    const u = await User.create({
-      name,
-      email,
-      phone,
-      image,
-      password,
-      address: req.body.address || '',
-      city: req.body.city || '',
-      state: req.body.state || '',
-      pinCode: req.body.pinCode || '',
-      role: roleDoc._id,
-      school: sch._id,
-      createdBy: adminInfo._id,
-      updatedBy: adminInfo._id,
-      active: true
+
+    await session.withTransaction(async () => {
+      const sch = await School.findById(new mongoose.Types.ObjectId(school)).session(session);
+      if (!sch) {
+        throw createHttpError(400, 'Invalid school');
+      }
+
+      let ex = null;
+      if (email) {
+        ex = await User.findOne({ email }).session(session);
+      }
+      if (!ex && phone) {
+        ex = await User.findOne({ phone }).session(session);
+      }
+      if (ex) {
+        throw createHttpError(409, 'User already exists');
+      }
+
+      const roleDoc = await Role.findOne({ role }).session(session);
+      if (!roleDoc) {
+        throw createHttpError(400, 'Role not found');
+      }
+
+      const adminSchoolId = adminInfo?.school?._id?.toString?.() || adminInfo?.school?.toString?.();
+      if (!adminSchoolId || sch._id.toString() !== adminSchoolId) {
+        throw createHttpError(403, 'Cannot assign user to a different school');
+      }
+
+      createdUser = new User({
+        name,
+        email,
+        phone,
+        image,
+        password,
+        address: req.body.address || '',
+        city: req.body.city || '',
+        state: req.body.state || '',
+        pinCode: req.body.pinCode || '',
+        role: roleDoc._id,
+        school: sch._id,
+        createdBy: adminInfo._id,
+        updatedBy: adminInfo._id,
+        active: true,
+      });
+      await createdUser.save({ session });
+
+      if (role === 'teacher' && adminInfo.role.role === 'admin') {
+        const teacherDoc = new Teacher({
+          _id: createdUser._id,
+          user: createdUser._id,
+          principal: adminInfo._id,
+        });
+        await teacherDoc.save({ session });
+      } else if (role === 'admin' && adminInfo.role.role === 'admin') {
+        const Admin = require('../models/admin');
+        const adminDoc = new Admin({
+          _id: createdUser._id,
+          user: createdUser._id,
+        });
+        await adminDoc.save({ session });
+      } else if (role === 'student') {
+        const Student = require('../models/student');
+        const studentDoc = new Student({
+          _id: createdUser._id,
+          user: createdUser._id,
+          studentId: req.body.studentId,
+          rollNumber: req.body.rollNumber,
+          dateOfAdmission: req.body.dateOfAdmission,
+          fatherName: req.body.fatherName,
+          motherName: req.body.motherName,
+          parentContact: req.body.parentContact,
+          dateOfBirth: req.body.dateOfBirth,
+        });
+        await studentDoc.save({ session });
+      } else if (role === 'staff' && adminInfo.role.role === 'admin') {
+        const Staff = require('../models/staff');
+        const staffDoc = new Staff({
+          user: createdUser._id,
+        });
+        await staffDoc.save({ session });
+      }
     });
 
-    if(role === 'teacher' && adminInfo.role.role === 'admin') {
-      await Teacher.create({
-        _id: u._id,
-        user: u._id,
-        principal: adminInfo._id
-      });
-    } else if(role === 'admin' && adminInfo.role.role === 'admin') {
-      const Admin = require('../models/admin');
-      await Admin.create({
-        _id: u._id,
-        user: u._id
-      });
-    } else if(role === 'student') {
-      const Student = require('../models/student');
-      await Student.create({
-        _id: u._id,
-        user: u._id,
-        studentId: req.body.studentId,
-        rollNumber: req.body.rollNumber,
-        dateOfAdmission: req.body.dateOfAdmission,
-        fatherName: req.body.fatherName,
-        motherName: req.body.motherName,
-        parentContact: req.body.parentContact,
-        dateOfBirth: req.body.dateOfBirth
-      });
-    } else if(role === 'staff' && adminInfo.role.role === 'admin') {
-      const Staff = require('../models/staff');
-      await Staff.create({
-        user: u._id
-      });
+    if (!createdUser) {
+      throw new Error('User creation failed');
     }
-    
-    await sendMail(
-      u.email,
-      'Registration Successful',
-      `<p>Welcome to our platform!</p><p>Your account has been created with the following details:</p><ul><li>Name: ${u.name}</li><li>Email: ${u.email}</li><li>Role: ${role}</li></ul><p>Please log in to your account to get started.</p>`
-    );
-    
-    return res.status(201).json(formatResponse(true, 'User created successfully', { userId: u._id }));
+
+    try {
+      await sendMail(
+        createdUser.email,
+        'Registration Successful',
+        `<p>Welcome to our platform!</p><p>Your account has been created with the following details:</p><ul><li>Name: ${createdUser.name}</li><li>Email: ${createdUser.email}</li><li>Role: ${role}</li></ul><p>Please log in to your account to get started.</p>`
+      );
+    } catch (mailError) {
+      console.log('User created but registration email failed:', mailError.message);
+    }
+
+    return res.status(201).json(formatResponse(true, 'User created successfully', { userId: createdUser._id }));
   } catch (error) {
     console.log("Error registering user: ", error);
+
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json(formatResponse(false, error.message));
+    }
+
     return res.status(500).json(formatResponse(false, 'Error registering user', null, error.message));
+  } finally {
+    await session.endSession();
   }
 };
 

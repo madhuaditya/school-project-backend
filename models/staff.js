@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const staffSchema = new mongoose.Schema({
     user: {
         type: mongoose.Schema.Types.ObjectId,
@@ -23,7 +24,7 @@ const staffSchema = new mongoose.Schema({
     },
     salary: {
         type: Number,
-        required: true
+        // required: true
     }
 }, { timestamps: true });
 

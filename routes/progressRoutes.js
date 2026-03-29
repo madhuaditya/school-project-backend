@@ -52,7 +52,7 @@ router.delete(
 // STUDENT PERFORMANCE
 router.get(
   "/student/:studentId",
-  allow("admin", "teacher"),
+  allow("admin", "teacher", "student"),
   getStudentPerformance,
 );
 
@@ -74,7 +74,7 @@ router.get(
 );
 router.get(
   "/result/student/:studentId",
-  allow("admin", "teacher"),
+  allow("admin", "teacher", "student"),
   getStudentResultByYear,
 );
 
