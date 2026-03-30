@@ -28,7 +28,7 @@ router.post("/assign-student", allow("admin", "teacher"), assignStudent);
 router.post("/remove-student", allow("admin", "teacher"), removeStudent);
 
 // GET ALL CLASSES
-router.get("/all", allow('admin','teacher'), getClasses);
+router.get("/all", allow('admin','teacher','student'), getClasses);
 
 // GET CLASS
 router.get("/:id", allow("admin", "teacher", "student"), getClassById);

@@ -722,6 +722,23 @@ const resetPasswordSchool = async (req, res) => {
   }
 };
 
+const getSchoolInfo = async (req, res) => {
+  try {
+    const schoolId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(schoolId)) {
+      return res.status(400).json(formatResponse(false, 'Invalid school ID'));
+    }
+
+    const sch = await School.findById(schoolId).select('_id schoolId schoolName email address city state pinCode image');
+    if (!sch) {
+      return res.status(404).json(formatResponse(false, 'School not found'));
+    }
+
+    return res.status(200).json(formatResponse(true, 'School info retrieved', sch));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error retrieving school info', null, error.message));
+  }
+};
 
 module.exports = {
   register,
@@ -742,5 +759,6 @@ module.exports = {
   updateUser,
   deleteTemp,
   deletePermanently,
-  reinistateUser
+  reinistateUser,
+  getSchoolInfo
 };

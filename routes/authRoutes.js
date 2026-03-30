@@ -20,7 +20,8 @@ const {
   deleteTemp,
   deletePermanently,
   reinistateUser,
-  getAllAdminsInSchool
+  getAllAdminsInSchool,
+  getSchoolInfo
 } = require("../controllers/authCtrl");
 const { validateRegister,validateUpdate, validateLogin,validateSChoolRegister } = require("../middleware/validate");
 const { allow } = require("../middleware/role");
@@ -55,5 +56,6 @@ r.post("/school/refresh", refreshSchool);
 r.post("/school/logout", logoutSchool);
 r.post("/school/forgot-password", sendSchoolForgotPasswordEmail);
 r.post("/school/reset-password", resetPasswordSchool);
+r.get("/school/:id", getSchoolInfo);
 
 module.exports = r;
