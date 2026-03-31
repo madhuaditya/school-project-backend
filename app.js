@@ -15,6 +15,11 @@ const timeTableRoutes = require('./routes/timeTableRoutes');
 const feedbackRoutes = require('./routes/feedbackRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const replyRoutes = require('./routes/replyRoutes');
+const feeStructureRoutes = require('./routes/feeStructureRoutes');
+const salaryStructureRoutes = require('./routes/salaryStructureRoutes');
+const feeManagementRoutes = require('./routes/feeManagementRoutes');
+const salaryManagementRoutes = require('./routes/salaryManagementRoutes');
+const alertRoutes = require('./routes/alertRoutes');
 const sanitizeResponse = require("./middleware/sanitizeResponse")
 const profileRoutes = require('./routes/profileRoutes');
 const dotenv = require("dotenv")
@@ -49,6 +54,11 @@ app.use('/api/timetable', timeTableRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/reply', replyRoutes);
+app.use('/api/fee-structure', feeStructureRoutes);
+app.use('/api/salary-structure', salaryStructureRoutes);
+app.use('/api/fee-management', feeManagementRoutes);
+app.use('/api/salary-management', salaryManagementRoutes);
+app.use('/api/alert', alertRoutes);
 app.use(sanitizeResponse)
 // app.use('/test',testRouts);
 app.use('/api/profile', profileRoutes);
