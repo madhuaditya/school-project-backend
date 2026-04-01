@@ -2,7 +2,7 @@
 
 **Base URL**: `http://localhost:5000/api`  
 **API Version**: 1.0  
-**Last Updated**: March 26, 2026
+**Last Updated**: March 31, 2026
 
 ---
 
@@ -17,6 +17,17 @@
 7. [Attendance APIs](#attendance-apis)
 8. [Progress & Performance APIs](#progress--performance-apis)
 9. [Profile APIs](#profile-apis)
+10. [Dashboard APIs](#dashboard-apis)
+11. [Notice APIs](#notice-apis)
+12. [TimeTable APIs](#timetable-apis)
+13. [Feedback APIs](#feedback-apis)
+14. [Chat APIs](#chat-apis)
+15. [Reply APIs](#reply-apis)
+16. [Fee Structure APIs](#fee-structure-apis)
+17. [Salary Structure APIs](#salary-structure-apis)
+18. [Fee Management APIs](#fee-management-apis)
+19. [Salary Management APIs](#salary-management-apis)
+20. [Alert APIs](#alert-apis)
 
 ---
 
@@ -1772,6 +1783,252 @@ Authorization: Bearer <accessToken>
 
 ---
 
+## Dashboard APIs
+
+**Base Path**: `/dashboard`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/dashboard/overview` | Admin, Teacher, Student, Staff, School | Headers: Bearer token; Query: optional filters | JSON (`success`, `msg`, `data`) |
+
+---
+
+## Notice APIs
+
+**Base Path**: `/notice`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/notice/valid` | Any authenticated user | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| POST | `/notice/` | Any authenticated user (school-scoped validation in controller) | Headers: Bearer token; Body: JSON notice payload | JSON (`success`, `msg`, `data`) |
+| PUT | `/notice/:id` | Any authenticated user (school-scoped validation in controller) | Headers: Bearer token; Params: `id`; Body: JSON update payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/notice/:id` | Any authenticated user (school-scoped validation in controller) | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`) |
+
+---
+
+## TimeTable APIs
+
+**Base Path**: `/timetable`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/timetable/` | Any authenticated user | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| GET | `/timetable/day/:day` | Any authenticated user | Headers: Bearer token; Params: `day` | JSON (`success`, `msg`, `data[]`) |
+| GET | `/timetable/class/:classId` | Any authenticated user | Headers: Bearer token; Params: `classId` | JSON (`success`, `msg`, `data[]`) |
+| POST | `/timetable/` | Admin only | Headers: Bearer token; Body: JSON timetable payload | JSON (`success`, `msg`, `data`) |
+| PUT | `/timetable/:id` | Admin only | Headers: Bearer token; Params: `id`; Body: JSON update payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/timetable/:id` | Admin only | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`) |
+
+---
+
+## Feedback APIs
+
+**Base Path**: `/feedback`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/feedback/public/contact` | Public | Body: JSON feedback/contact payload | JSON (`success`, `msg`, `data`) |
+| POST | `/feedback/public/review` | Public | Body: JSON review payload | JSON (`success`, `msg`, `data`) |
+| GET | `/feedback/` | Authenticated | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+
+---
+
+## Chat APIs
+
+**Base Path**: `/chat`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/chat/create` | Authenticated | Headers: Bearer token; Body: JSON chat message | JSON (`success`, `msg`, `data`) |
+| DELETE | `/chat/:id` | Authenticated (creator-only delete) | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`) |
+| GET | `/chat/my` | Authenticated | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| GET | `/chat/` | Authenticated | Headers: Bearer token; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+
+---
+
+## Reply APIs
+
+**Base Path**: `/reply`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/reply/create` | Authenticated | Headers: Bearer token; Body: JSON reply payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/reply/:id` | Authenticated (creator-only delete) | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`) |
+| GET | `/reply/my` | Authenticated | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| GET | `/reply/chat/:chatId` | Authenticated | Headers: Bearer token; Params: `chatId`; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+
+---
+
+## Fee Structure APIs
+
+**Base Path**: `/fee-structure`
+
+**Authorization for all endpoints**: Admin only
+
+| Method | Endpoint | Request Type | Response Type |
+|---|---|---|---|
+| POST | `/fee-structure/create` | Headers: Bearer token; Body: JSON fee structure payload | JSON (`success`, `msg`, `data`) |
+| GET | `/fee-structure/all` | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| GET | `/fee-structure/class/:classId` | Headers: Bearer token; Params: `classId` | JSON (`success`, `msg`, `data`) |
+| GET | `/fee-structure/:id` | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`, `data`) |
+| PUT | `/fee-structure/:id` | Headers: Bearer token; Params: `id`; Body: JSON update payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/fee-structure/:id` | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`) |
+
+---
+
+## Salary Structure APIs
+
+**Base Path**: `/salary-structure`
+
+**Authorization for all endpoints**: Admin only
+
+| Method | Endpoint | Request Type | Response Type |
+|---|---|---|---|
+| POST | `/salary-structure/create` | Headers: Bearer token; Body: JSON salary structure payload | JSON (`success`, `msg`, `data`) |
+| GET | `/salary-structure/all` | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| GET | `/salary-structure/role/:role` | Headers: Bearer token; Params: `role` | JSON (`success`, `msg`, `data`) |
+| GET | `/salary-structure/:id` | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`, `data`) |
+| PUT | `/salary-structure/:id` | Headers: Bearer token; Params: `id`; Body: JSON update payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/salary-structure/:id` | Headers: Bearer token; Params: `id` | JSON (`success`, `msg`) |
+
+---
+
+## Fee Management APIs
+
+**Base Path**: `/fee-management`
+
+### Fee Record APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/fee-management/record/create` | Admin | Body: JSON (`userId`, `month`, `year`, amounts, dueDate, notes) | JSON (`success`, `msg`, `data`) |
+| PUT | `/fee-management/record/:id` | Admin | Params: `id`; Body: JSON update payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/fee-management/record/:id` | Admin | Params: `id` | JSON (`success`, `msg`) |
+| POST | `/fee-management/record/class/bulk-create` | Admin | Body: JSON (`classId`, `month`, `year`, amounts, dueDate, notes) | JSON (`success`, `msg`, summary `data`) |
+| GET | `/fee-management/record/:id` | Admin, Student(own) | Params: `id` | JSON (`success`, `msg`, `data`) |
+| GET | `/fee-management/record/student/:studentId/month/:month/:year` | Admin, Student(own) | Params: `studentId`, `month`, `year` | JSON (`success`, `msg`, `data`) |
+| GET | `/fee-management/record/student/:studentId/all` | Admin, Student(own) | Params: `studentId`; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+
+### Fee Analytics APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/fee-management/analytics/class-wise` | Admin | Query: `classId`, `month`, `year` | JSON (`success`, `msg`, matrix `data`) |
+| GET | `/fee-management/analytics/school-wise` | Admin | Query: `month`, `year` | JSON (`success`, `msg`, matrix `data`) |
+| GET | `/fee-management/analytics/pending` | Admin | Query: `classId`, optional `month`, `year` | JSON (`success`, `msg`, `data[]`) |
+| GET | `/fee-management/analytics/yearly` | Admin | Query: `classId`, `year` | JSON (`success`, `msg`, matrix `data`) |
+
+### Fee Payment APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/fee-management/payment/create` | Admin | Body: JSON (`feeRecordId`, `amount`, `method`, optional `lateFee`, `transactionId`, `remarks`) | JSON (`success`, `msg`, `data`) |
+| GET | `/fee-management/payment/:feeRecordId` | Admin, Student(own) | Params: `feeRecordId`; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+| GET | `/fee-management/payment/student/:studentId/history` | Admin, Student(own) | Params: `studentId`; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+
+### Fee Due Alert Trigger APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/fee-management/alert/student/create` | Admin | Body: JSON (`studentId`, `month`, `year`) | JSON (`success`, `msg`, `data`) |
+| POST | `/fee-management/alert/class/create` | Admin | Body: JSON (`classId`, `month`, `year`) | JSON (`success`, `msg`, summary `data`) |
+| POST | `/fee-management/alert/school/create` | Admin | Body: JSON (`month`, `year`) | JSON (`success`, `msg`, summary `data`) |
+
+---
+
+## Salary Management APIs
+
+**Base Path**: `/salary-management`
+
+### Salary Record APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/salary-management/record/create` | Admin | Body: JSON (`staffId`, `month`, `year`, salary fields) | JSON (`success`, `msg`, `data`) |
+| PUT | `/salary-management/record/:id` | Admin | Params: `id`; Body: JSON update payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/salary-management/record/:id` | Admin | Params: `id` | JSON (`success`, `msg`) |
+| GET | `/salary-management/record/:id` | Admin, Staff(own), Teacher(own) | Params: `id` | JSON (`success`, `msg`, `data`) |
+| GET | `/salary-management/record/staff/:staffId/month/:month/:year` | Admin, Staff(own), Teacher(own) | Params: `staffId`, `month`, `year` | JSON (`success`, `msg`, `data`) |
+| GET | `/salary-management/record/staff/:staffId/all` | Admin, Staff(own), Teacher(own) | Params: `staffId`; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+
+### Salary Analytics APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/salary-management/analytics/matrix-month` | Admin | Query: `month`, `year` | JSON (`success`, `msg`, matrix `data`) |
+| GET | `/salary-management/analytics/yearly` | Admin | Query: `staffId`, `year` | JSON (`success`, `msg`, matrix `data`) |
+| GET | `/salary-management/analytics/pending` | Admin | Query: optional `month`, `year` | JSON (`success`, `msg`, `data[]`) |
+
+### Salary Payment APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/salary-management/payment/create` | Admin | Body: JSON (`salaryRecordId`, `amount`, `method`, optional `transactionId`) | JSON (`success`, `msg`, `data`) |
+| GET | `/salary-management/payment/:salaryRecordId` | Admin | Params: `salaryRecordId`; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+| GET | `/salary-management/payment/staff/:staffId/history` | Admin, Staff(own), Teacher(own) | Params: `staffId`; Query: `page`, `limit` | JSON (`success`, `msg`, paginated `data`) |
+
+---
+
+## Alert APIs
+
+**Base Path**: `/alert`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/alert/create` | Admin | Body: JSON (`userId`, `title`, `message`) | JSON (`success`, `msg`, `data`) |
+| GET | `/alert/unviewed` | Authenticated (admin sees school-wide; others own only) | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| PUT | `/alert/:alertId/mark-viewed` | Authenticated (target user only) | Params: `alertId` | JSON (`success`, `msg`, `data`) |
+
+---
+
+## Additional Endpoints Added To Existing Modules
+
+### Authentication - Additional APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/auth/admin/all` | Admin | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+| GET | `/auth/school/:id` | Public/Auth (as implemented) | Params: `id` | JSON (`success`, `msg`, `data`) |
+
+### Profile - Additional API
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| PUT | `/profile/update` | Authenticated | Headers: Bearer token; Body: JSON profile payload | JSON (`success`, `msg`, `data`) |
+
+### Progress - Additional APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/progress/valid-subjects/:studentId` | Admin, Teacher | Params: `studentId` | JSON (`success`, `msg`, `data[]`) |
+| GET | `/progress/:progressId` | Admin, Teacher | Params: `progressId` | JSON (`success`, `msg`, `data`) |
+| PUT | `/progress/:progressId` | Admin, Teacher | Params: `progressId`; Body: JSON update payload | JSON (`success`, `msg`, `data`) |
+| DELETE | `/progress/:progressId` | Admin, Teacher | Params: `progressId` | JSON (`success`, `msg`) |
+| GET | `/progress/advanced-report/:studentId` | Admin, Teacher | Params: `studentId` | PDF/Blob response |
+| GET | `/progress/report-card/:studentId` | Admin, Teacher | Params: `studentId` | PDF/Blob response |
+| GET | `/progress/report-card-cbsc/:studentId` | Admin, Teacher | Params: `studentId` | PDF/Blob response |
+
+### Subject - Additional API
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/subject/all` | Admin, Teacher | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+
+### Teacher - Additional API
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/teacher/all` | Admin, Teacher, Student, Staff | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+
+### System Utility APIs
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| GET | `/health` | Public | None | JSON (`status`) |
+| GET | `/` | Public | None | JSON (`message`) |
+
+---
+
 ## Authentication Details
 
 ### Token Structure
@@ -1853,6 +2110,6 @@ All endpoints validate that users can only access resources within their own sch
 
 For API support or issues, please contact the development team or create an issue in the repository.
 
-**Last Updated**: March 26, 2026  
+**Last Updated**: March 31, 2026  
 **API Base URL**: `http://localhost:5000/api`  
 **Authentication**: JWT Bearer Token

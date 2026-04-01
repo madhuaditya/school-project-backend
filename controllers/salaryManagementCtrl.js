@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 const SalaryRecord = require("../models/salaryRecord");
 const SalaryPayment = require("../models/salaryPayment");
-const Staff = require("../models/staff");
 const User = require("../models/user");
 
 const formatResponse = (success, msg, data = null, error = null) => {
@@ -11,6 +10,13 @@ const formatResponse = (success, msg, data = null, error = null) => {
     ...(data && { data }),
     ...(error && { error }),
   };
+};
+
+const SALARY_ELIGIBLE_ROLES = ["admin", "teacher", "staff"];
+
+const isSalaryEligibleUser = (userDoc) => {
+  const roleName = userDoc?.role?.role;
+  return !!roleName && SALARY_ELIGIBLE_ROLES.includes(roleName);
 };
 
 // ==================== SALARY RECORD MANAGEMENT ====================
@@ -35,12 +41,19 @@ const createSalaryRecord = async (req, res) => {
       return res.status(400).json(formatResponse(false, "Month must be 1-12"));
     }
 
-    const staff = await Staff.findById(staffId).populate("user", "_id school");
+    const staff = await User.findById(staffId)
+      .populate("school", "_id")
+      .populate("role", "role")
+      .select("_id school role name email");
     if (!staff) {
       return res.status(404).json(formatResponse(false, "Staff not found"));
     }
 
-    if (staff.user.school.toString() !== req.user.school._id.toString()) {
+    if (!isSalaryEligibleUser(staff)) {
+      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
+    }
+
+    if (staff.school.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Staff not in your school"));
     }
 
@@ -86,7 +99,7 @@ const createSalaryRecord = async (req, res) => {
     const record = await SalaryRecord.create({
       staffId,
       school: req.user.school._id,
-      user: staff.user._id,
+      user: staff._id,
       month,
       year,
       baseSalary: baseSalary || 0,
@@ -276,17 +289,24 @@ const getStaffSalaryByMonth = async (req, res) => {
       return res.status(400).json(formatResponse(false, "Month must be 1-12"));
     }
 
-    const staff = await Staff.findById(staffId).populate("user", "_id school name email");
+    const staff = await User.findById(staffId)
+      .populate("school", "_id")
+      .populate("role", "role")
+      .select("_id school role name email");
     if (!staff) {
       return res.status(404).json(formatResponse(false, "Staff not found"));
     }
 
+    if (!isSalaryEligibleUser(staff)) {
+      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
+    }
+
     // Staff/Teacher can only view own records
-    if ((userRole === "staff" || userRole === "teacher") && staff.user._id.toString() !== req.user._id.toString()) {
+    if ((userRole === "staff" || userRole === "teacher") && staff._id.toString() !== req.user._id.toString()) {
       return res.status(403).json(formatResponse(false, "Access denied"));
     }
 
-    if (staff.user.school.toString() !== req.user.school._id.toString()) {
+    if (staff.school.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
@@ -326,17 +346,24 @@ const getStaffAllSalaries = async (req, res) => {
       return res.status(400).json(formatResponse(false, "staffId is required"));
     }
 
-    const staff = await Staff.findById(staffId).populate("user", "_id school name email");
+    const staff = await User.findById(staffId)
+      .populate("school", "_id")
+      .populate("role", "role")
+      .select("_id school role name email");
     if (!staff) {
       return res.status(404).json(formatResponse(false, "Staff not found"));
     }
 
+    if (!isSalaryEligibleUser(staff)) {
+      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
+    }
+
     // Staff/Teacher can only view own records
-    if ((userRole === "staff" || userRole === "teacher") && staff.user._id.toString() !== req.user._id.toString()) {
+    if ((userRole === "staff" || userRole === "teacher") && staff._id.toString() !== req.user._id.toString()) {
       return res.status(403).json(formatResponse(false, "Access denied"));
     }
 
-    if (staff.user.school.toString() !== req.user.school._id.toString()) {
+    if (staff.school.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
@@ -458,12 +485,19 @@ const getYearlySalaryMatrix = async (req, res) => {
       return res.status(400).json(formatResponse(false, "staffId and year are required"));
     }
 
-    const staff = await Staff.findById(staffId).populate("user", "_id school");
+    const staff = await User.findById(staffId)
+      .populate("school", "_id")
+      .populate("role", "role")
+      .select("_id school role name email");
     if (!staff) {
       return res.status(404).json(formatResponse(false, "Staff not found"));
     }
 
-    if (staff.user.school.toString() !== req.user.school._id.toString()) {
+    if (!isSalaryEligibleUser(staff)) {
+      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
+    }
+
+    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Staff not in your school"));
     }
 
@@ -499,7 +533,7 @@ const getYearlySalaryMatrix = async (req, res) => {
       formatResponse(true, "Yearly salary matrix fetched successfully", {
         staffId,
         year: parseInt(year),
-        staffName: staff.user.name,
+        staffName: staff.name,
         yearlyPayable,
         yearlyPaid,
         yearlyPending: yearlyPayable - yearlyPaid,
@@ -675,17 +709,24 @@ const getStaffPaymentHistory = async (req, res) => {
       return res.status(400).json(formatResponse(false, "staffId is required"));
     }
 
-    const staff = await Staff.findById(staffId).populate("user", "_id school name email");
+    const staff = await User.findById(staffId)
+      .populate("school", "_id")
+      .populate("role", "role")
+      .select("_id school role name email");
     if (!staff) {
       return res.status(404).json(formatResponse(false, "Staff not found"));
     }
 
+    if (!isSalaryEligibleUser(staff)) {
+      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
+    }
+
     // Staff/Teacher can only view own payment history
-    if ((userRole === "staff" || userRole === "teacher") && staff.user._id.toString() !== req.user._id.toString()) {
+    if ((userRole === "staff" || userRole === "teacher") && staff._id.toString() !== req.user._id.toString()) {
       return res.status(403).json(formatResponse(false, "Access denied"));
     }
 
-    if (staff.user.school.toString() !== req.user.school._id.toString()) {
+    if (staff.school.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 

@@ -6,7 +6,7 @@ const genAT = (u) => {
   return jwt.sign(
     { _id: u._id, role: u.role },
     process.env.JWT_ACCESS_SECRET,
-    { expiresIn: '2h' }
+    { expiresIn: '8d' }
   );
 };
 

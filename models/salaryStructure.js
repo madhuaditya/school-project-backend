@@ -28,6 +28,14 @@ const salaryStructureSchema = new mongoose.Schema(
       tax: { type: Number, default: 0 },
       other: { type: Number, default: 0 },
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
   { timestamps: true },
 );

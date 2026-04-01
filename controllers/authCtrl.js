@@ -347,6 +347,73 @@ const getAllAdminsInSchool = async (req, res) => {
   }
 };
 
+const getAllStaffInSchool = async (req, res) => {
+  try {
+    const currentUser = req.user;
+    const currentRole = currentUser?.role?.role || currentUser?.role;
+
+    if (!currentUser || currentRole !== 'admin') {
+      return res.status(403).json(formatResponse(false, 'Only admins can access staff list'));
+    }
+
+    const schoolId = currentUser.school?._id || currentUser.school;
+    if (!schoolId) {
+      return res.status(400).json(formatResponse(false, 'Admin is not mapped to a school'));
+    }
+
+    const adminRole = await Role.findOne({ role: 'staff' }).select('_id');
+    if (!adminRole) {
+      return res.status(400).json(formatResponse(false, 'Staff role not found'));
+    }
+
+    const admins = await User.find({
+      school: schoolId,
+      role: adminRole._id,
+      active: true,
+    })
+      .select('_id name email phone image city state address pinCode school active role createdAt')
+      .populate('school', '_id schoolName')
+      .populate('role', 'role')
+      .sort({ createdAt: -1 });
+
+    formattedAdmins = admins.map(a => ({
+     user:{
+       _id: a._id,
+      name: a.name,
+      email: a.email,
+      phone: a.phone,
+      image: a.image,
+      city: a.city,
+      state: a.state,
+      address: a.address,
+      pinCode: a.pinCode,
+      school: a.school,
+      active: a.active,
+      role: a.role,
+      createdAt: a.createdAt,
+     },
+      _id: a._id,
+      name: a.name,
+      email: a.email,
+      phone: a.phone,
+      image: a.image,
+      city: a.city,
+      state: a.state,
+      address: a.address,
+      pinCode: a.pinCode,
+      school: a.school,
+      active: a.active,
+      role: a.role,
+      createdAt: a.createdAt,
+    }));
+    return res
+      .status(200)
+      .json(formatResponse(true, 'Staff fetched successfully', formattedAdmins ));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error fetching staff', null, error.message));
+  }
+};
+
 // LOGIN
 const login = async (req, res) => {
   try {
@@ -760,5 +827,6 @@ module.exports = {
   deleteTemp,
   deletePermanently,
   reinistateUser,
-  getSchoolInfo
+  getSchoolInfo,
+  getAllStaffInSchool
 };

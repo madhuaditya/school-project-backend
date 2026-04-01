@@ -60,7 +60,6 @@ app.use('/api/fee-management', feeManagementRoutes);
 app.use('/api/salary-management', salaryManagementRoutes);
 app.use('/api/alert', alertRoutes);
 app.use(sanitizeResponse)
-// app.use('/test',testRouts);
 app.use('/api/profile', profileRoutes);
 // app.use('/sales', saleRoutes);
 // app.use('/invoice', require('./routes/invoiceRoutes'));
