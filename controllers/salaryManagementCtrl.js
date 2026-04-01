@@ -53,7 +53,7 @@ const createSalaryRecord = async (req, res) => {
       return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
     }
 
-    if (staff.school.toString() !== req.user.school._id.toString()) {
+    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Staff not in your school"));
     }
 
@@ -306,7 +306,7 @@ const getStaffSalaryByMonth = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Access denied"));
     }
 
-    if (staff.school.toString() !== req.user.school._id.toString()) {
+    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
@@ -363,7 +363,7 @@ const getStaffAllSalaries = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Access denied"));
     }
 
-    if (staff.school.toString() !== req.user.school._id.toString()) {
+    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
@@ -726,7 +726,7 @@ const getStaffPaymentHistory = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Access denied"));
     }
 
-    if (staff.school.toString() !== req.user.school._id.toString()) {
+    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
