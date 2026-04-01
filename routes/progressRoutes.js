@@ -38,6 +38,7 @@ router.get(
   allow("admin", "teacher"),
   getProgressById,
 );
+
 router.put(
   "/:progressId",
   allow("admin", "teacher"),

@@ -733,7 +733,8 @@ const generateAdvancedReport = async (req, res) => {
 const generateStyledReport = async (req, res) => {
   try {
     const { studentId } = req.params;
-    const academicYear = req.params.academicYear;
+    const academicYear = req.query.academicYear;
+    console.log("Generating styled report for student:", studentId, "academicYear:", academicYear);
     const school = req.user.school._id;
     const student = await Student.findById(studentId).populate('user', '_id name school');
     
@@ -776,7 +777,7 @@ const generateStyledReport = async (req, res) => {
 
 const generateCBSEReport = async (req, res) => {
   try {
-    const academicYear = req.params.academicYear;
+    const academicYear = req.query.academicYear || "2025-26";
     const studentId = req.params.studentId;
     const school = req.user.school._id;
     const student = await Student.findById(studentId).populate('user', '_id name school');
