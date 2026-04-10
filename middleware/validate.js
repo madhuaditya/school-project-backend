@@ -29,14 +29,59 @@ const validateUpdate = (req, res, next) => {
   next();
 };
 
-const validateRegister = (req, res, next) => {
-  const { name, email, phone, password, role } = req.body;
+const validateUserLogin = (req, res, next) => {
+  const { username, password } = req.body;
 
-  if (!name || name.trim().length < 2)
+  if (!username || username.trim().length < 5)
+    return res.status(400).json({ msg: 'Username required' });
+
+  if (!password)
+    return res.status(400).json({ msg: 'Password required' });
+
+  next();
+};
+
+const validateForgotPassword = (req, res, next) => {
+  const { username, email } = req.body;
+
+  if (!username || username.trim().length < 5)
+    return res.status(400).json({ msg: 'Username required' });
+
+  if (!email)
+    return res.status(400).json({ msg: 'Email required' });
+
+  if (!isEmail(email))
+    return res.status(400).json({ msg: 'Invalid email' });
+
+  next();
+};
+
+const validateSchoolLogin = (req, res, next) => {
+  const { email, password } = req.body;
+
+  if (!email)
+    return res.status(400).json({ msg: 'Email required' });
+
+  if (!isEmail(email))
+    return res.status(400).json({ msg: 'Invalid email' });
+
+  if (!password)
+    return res.status(400).json({ msg: 'Password required' });
+
+  next();
+};
+
+const validateRegister = (req, res, next) => {
+  const { name, email, phone, password, role,username } = req.body;
+
+  if (!name || name.trim().length < 5)
     return res.status(400).json({ msg: 'Invalid name' });
 
-  if (!email && !phone)
-    return res.status(400).json({ msg: 'Email or phone required' });
+  if ( !username || username?.trim().length < 5)
+    return res.status(400).json({ msg: 'Invalid username' });
+
+  if (!email && !phone && !username)
+    return res.status(400).json({ msg: 'Email, phone or username required' });
 
   if (email && !isEmail(email))
     return res.status(400).json({ msg: 'Invalid email' });
@@ -79,13 +124,16 @@ const validateSChoolRegister = (req, res, next) => {
 };
 
 const validateLogin = (req, res, next) => {
-  const { email, phone, password } = req.body;
+  const { username, email, phone, password } = req.body;
 
   if (!password)
     return res.status(400).json({ msg: 'Password required' });
 
-  if (!email && !phone)
-    return res.status(400).json({ msg: 'Email or phone required' });
+  if (!email && !phone && !username)
+    return res.status(400).json({ msg: 'Email, phone or username required' });
+
+  if(username && username.trim().length < 5)
+    return res.status(400).json({ msg: 'Invalid username' });
 
   if (email && !isEmail(email))
     return res.status(400).json({ msg: 'Invalid email' });
@@ -96,4 +144,12 @@ const validateLogin = (req, res, next) => {
   next();
 };
 
-module.exports = { validateRegister, validateSChoolRegister, validateLogin ,validateUpdate};
+module.exports = {
+  validateRegister,
+  validateSChoolRegister,
+  validateLogin,
+  validateUpdate,
+  validateUserLogin,
+  validateForgotPassword,
+  validateSchoolLogin,
+};

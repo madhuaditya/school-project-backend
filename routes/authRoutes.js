@@ -24,7 +24,14 @@ const {
   getSchoolInfo,
   getAllStaffInSchool
 } = require("../controllers/authCtrl");
-const { validateRegister,validateUpdate, validateLogin,validateSChoolRegister } = require("../middleware/validate");
+const {
+  validateRegister,
+  validateUpdate,
+  validateSChoolRegister,
+  validateUserLogin,
+  validateForgotPassword,
+  validateSchoolLogin,
+} = require("../middleware/validate");
 const { allow } = require("../middleware/role");
 const { validateUser } = require("../middleware/auth");
 
@@ -37,11 +44,11 @@ r.post(
   validateRegister,
   register,
 );
-r.post("/login", validateLogin, login);
+r.post("/login", validateUserLogin, login);
 r.post("/refresh", refresh);
 r.post("/logout", logout);
 r.post("/change-password", validateUser, changePassword);
-r.post("/forgot-password", forgotPassword);
+r.post("/forgot-password", validateForgotPassword, forgotPassword);
 r.post("/reset-password", resetPassword);
 r.post("/change-role", validateUser, allow("admin", ), changeRole);
 r.post("/update-user/:id", validateUser,validateUpdate, allow("admin",'teacher','staff' , 'student'), updateUser);
@@ -53,7 +60,7 @@ r.get("/staff/all", validateUser, allow("admin"), getAllStaffInSchool);
 
 // School routes
 r.post("/school/register", validateSChoolRegister, registerSchool);
-r.post("/school/login", validateLogin, loginSchool);
+r.post("/school/login", validateSchoolLogin, loginSchool);
 r.post("/school/refresh", refreshSchool);
 r.post("/school/logout", logoutSchool);
 r.post("/school/forgot-password", sendSchoolForgotPasswordEmail);

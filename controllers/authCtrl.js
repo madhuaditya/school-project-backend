@@ -32,14 +32,14 @@ const register = async (req, res) => {
   let createdUser = null;
 
   try {
-    const { name, email, phone, password, role, school, image } = req.body;
+    const { name, email, phone, password, role, school, image , username } = req.body;
     const adminInfo = req.user;
     
     if(!adminInfo || (adminInfo.role.role !== 'admin' && adminInfo.role.role !== 'school' && adminInfo.role.role !== 'teacher')) {
       return res.status(403).json(formatResponse(false, 'Only admins can register new users'));
     }
 
-    if (!password || (!email && !phone) || !role)
+    if (!password || !email || !phone || !username || !role)
       return res.status(400).json(formatResponse(false, 'Invalid data'));
 
     if (!VALID_ROLES.includes(role))
@@ -67,15 +67,9 @@ const register = async (req, res) => {
         throw createHttpError(400, 'Invalid school');
       }
 
-      let ex = null;
-      if (email) {
-        ex = await User.findOne({ email }).session(session);
-      }
-      if (!ex && phone) {
-        ex = await User.findOne({ phone }).session(session);
-      }
+      let ex = await User.findOne({ username }).session(session);
       if (ex) {
-        throw createHttpError(409, 'User already exists');
+        throw createHttpError(409, 'Username already exists username must be unique please choose another one');
       }
 
       const roleDoc = await Role.findOne({ role }).session(session);
@@ -90,6 +84,7 @@ const register = async (req, res) => {
 
       createdUser = new User({
         name,
+        username,
         email,
         phone,
         image,
@@ -417,9 +412,10 @@ const getAllStaffInSchool = async (req, res) => {
 // LOGIN
 const login = async (req, res) => {
   try {
-    const { email, phone, password } = req.body;
+    const { username, password } = req.body;
+    const normalizedUsername = username.trim();
 
-    const u = await User.findOne({ email }).populate('role', 'role').populate('school', 'id schoolName image');
+    const u = await User.findOne({ username: normalizedUsername }).populate('role', 'role').populate('school', '_id schoolName email image');
 
     if (!u) return res.status(401).json(formatResponse(false, 'Invalid credentials'));
     
@@ -442,6 +438,7 @@ const login = async (req, res) => {
       accessToken: at,
       refreshToken: rt,
       name: u.name,
+      username: u.username,
       email: u.email,
       role: u.role,
       _id: u._id,
@@ -524,9 +521,11 @@ const changePassword = async (req, res) => {
 // FORGOT PASSWORD
 const forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, username } = req.body;
+    const normalizedEmail = email.trim();
+    const normalizedUsername = username.trim();
 
-    const u = await User.findOne({ email, active: true });
+    const u = await User.findOne({ email: normalizedEmail, username: normalizedUsername, active: true });
     if (!u) return res.status(404).json(formatResponse(false, 'User not found'));
 
     const token = jwt.sign(
