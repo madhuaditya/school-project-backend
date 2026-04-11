@@ -1,5 +1,11 @@
 const mongoose = require("mongoose");
 
+const roundToTwoDecimals = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
 const salaryRecordSchema = new mongoose.Schema(
   {
     staffId: {
@@ -23,27 +29,27 @@ const salaryRecordSchema = new mongoose.Schema(
     month: { type: Number, required: true, min: 1, max: 12 },
     year: { type: Number, required: true },
 
-    baseSalary: { type: Number, default: 0 },
+    baseSalary: { type: Number, default: 0, set: roundToTwoDecimals },
 
     earnings: {
-      basic: { type: Number, default: 0 },
-      hra: { type: Number, default: 0 },
-      da: { type: Number, default: 0 },
-      bonus: { type: Number, default: 0 },
+      basic: { type: Number, default: 0, set: roundToTwoDecimals },
+      hra: { type: Number, default: 0, set: roundToTwoDecimals },
+      da: { type: Number, default: 0, set: roundToTwoDecimals },
+      bonus: { type: Number, default: 0, set: roundToTwoDecimals },
     },
 
     deductions: {
-      pf: { type: Number, default: 0 },
-      tax: { type: Number, default: 0 },
-      other: { type: Number, default: 0 },
-      leaveDeduction: { type: Number, default: 0 },
+      pf: { type: Number, default: 0, set: roundToTwoDecimals },
+      tax: { type: Number, default: 0, set: roundToTwoDecimals },
+      other: { type: Number, default: 0, set: roundToTwoDecimals },
+      leaveDeduction: { type: Number, default: 0, set: roundToTwoDecimals },
     },
 
-    totalEarnings: { type: Number, default: 0 },
-    totalDeductions: { type: Number, default: 0 },
-    netSalary: { type: Number, default: 0 },
+    totalEarnings: { type: Number, default: 0, set: roundToTwoDecimals },
+    totalDeductions: { type: Number, default: 0, set: roundToTwoDecimals },
+    netSalary: { type: Number, default: 0, set: roundToTwoDecimals },
 
-    paidAmount: { type: Number, default: 0 },
+    paidAmount: { type: Number, default: 0, set: roundToTwoDecimals },
 
     status: {
       type: String,

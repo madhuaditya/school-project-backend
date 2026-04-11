@@ -1,5 +1,11 @@
 const mongoose = require("mongoose");
 
+const roundToTwoDecimals = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
 const feeRecordSchema = new mongoose.Schema(
   {
     user: {
@@ -23,9 +29,9 @@ const feeRecordSchema = new mongoose.Schema(
     month: { type: Number, required: true, min: 1, max: 12 },
     year: { type: Number, required: true },
 
-    totalFee: { type: Number, required: true, default: 0 },
-    paidAmount: { type: Number, default: 0 },
-    dueAmount: { type: Number, required: true, default: 0 },
+    totalFee: { type: Number, required: true, default: 0, set: roundToTwoDecimals },
+    paidAmount: { type: Number, default: 0, set: roundToTwoDecimals },
+    dueAmount: { type: Number, required: true, default: 0, set: roundToTwoDecimals },
 
     status: {
       type: String,
@@ -38,19 +44,21 @@ const feeRecordSchema = new mongoose.Schema(
     discount: {
       type: Number,
       default: 0,
+      set: roundToTwoDecimals,
     },
 
     fine: {
       type: Number,
       default: 0,
+      set: roundToTwoDecimals,
     },
 
     notes: String,
 
     history: [
       {
-        amount: Number,
-        lateFee: Number,
+        amount: { type: Number, set: roundToTwoDecimals },
+        lateFee: { type: Number, set: roundToTwoDecimals },
         method: {
           type: String,
           enum: ["UPI", "CARD", "NETBANKING", "CASH"],

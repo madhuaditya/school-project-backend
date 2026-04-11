@@ -15,6 +15,12 @@ const formatResponse = (success, msg, data = null, error = null) => {
   };
 };
 
+const toMoney = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
 // ==================== FEE RECORD MANAGEMENT ====================
 
 const createFeeRecord = async (req, res) => {
@@ -31,10 +37,22 @@ const createFeeRecord = async (req, res) => {
       notes = "",
     } = req.body;
 
+    const normalizedTotalFee = toMoney(totalFee);
+    const normalizedDueAmount = toMoney(dueAmount);
+    const normalizedDiscount = toMoney(discount);
+    const normalizedFine = toMoney(fine);
+
     if (!userId || !month || !year || !totalFee || dueAmount === undefined) {
       return res
         .status(400)
         .json(formatResponse(false, "Missing required fields"));
+    }
+    if(normalizedDueAmount < 0){
+      return res.status(400).json(formatResponse(false, "dueAmount cannot be negative"));
+    }
+
+    if(normalizedDueAmount > normalizedTotalFee){
+      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
     }
 
     if (month < 1 || month > 12) {
@@ -66,20 +84,30 @@ const createFeeRecord = async (req, res) => {
         .json(formatResponse(false, "Fee record already exists for this student, month and year"));
     }
 
+    let status = "PENDING";
+    if (normalizedDueAmount <= 0) {
+      status = "PAID";
+    }
+    if (normalizedDueAmount > 0 && normalizedDueAmount < normalizedTotalFee) {
+      status = "PARTIAL";
+    }
+
+
+
     const feeRecord = await FeeRecord.create({
       user: userId,
       school: req.user.school._id,
       class: student.class._id,
       month,
       year,
-      totalFee,
-      dueAmount,
-      discount,
-      fine,
+      totalFee: normalizedTotalFee,
+      dueAmount: normalizedDueAmount,
+      discount: normalizedDiscount,
+      fine: normalizedFine,
       dueDate: dueDate ? new Date(dueDate) : null,
       notes,
-      status: "PENDING",
-      paidAmount: 0,
+      status,
+      paidAmount: toMoney(normalizedTotalFee - normalizedDueAmount),
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -104,6 +132,22 @@ const updateFeeRecord = async (req, res) => {
     const { id } = req.params;
     const { totalFee, dueAmount, discount, fine, dueDate, notes, status } =
       req.body;
+    const normalizedTotalFee = totalFee !== undefined ? toMoney(totalFee) : undefined;
+    const normalizedDueAmount = dueAmount !== undefined ? toMoney(dueAmount) : undefined;
+    const normalizedDiscount = discount !== undefined ? toMoney(discount) : undefined;
+    const normalizedFine = fine !== undefined ? toMoney(fine) : undefined;
+
+     if(normalizedTotalFee !== undefined && normalizedTotalFee < 0){
+      return res.status(400).json(formatResponse(false, "totalFee cannot be negative"));
+    }
+    if(normalizedDueAmount !== undefined && normalizedDueAmount < 0){
+      return res.status(400).json(formatResponse(false, "dueAmount cannot be negative"));
+    }
+    const totalForValidation = normalizedTotalFee !== undefined ? normalizedTotalFee : undefined;
+    const dueForValidation = normalizedDueAmount !== undefined ? normalizedDueAmount : undefined;
+    if(totalForValidation !== undefined && dueForValidation !== undefined && dueForValidation > totalForValidation){
+      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
+    }
 
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json(formatResponse(false, "Valid id is required"));
@@ -118,14 +162,22 @@ const updateFeeRecord = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
-    if (totalFee !== undefined) feeRecord.totalFee = totalFee;
-    if (dueAmount !== undefined) feeRecord.dueAmount = dueAmount;
-    if (discount !== undefined) feeRecord.discount = discount;
-    if (fine !== undefined) feeRecord.fine = fine;
+    if (normalizedTotalFee !== undefined) feeRecord.totalFee = normalizedTotalFee;
+    if (normalizedDueAmount !== undefined) feeRecord.dueAmount = normalizedDueAmount;
+    if (normalizedDiscount !== undefined) feeRecord.discount = normalizedDiscount;
+    if (normalizedFine !== undefined) feeRecord.fine = normalizedFine;
     if (dueDate !== undefined) feeRecord.dueDate = dueDate ? new Date(dueDate) : null;
     if (notes !== undefined) feeRecord.notes = notes;
-    if (status && ["PAID", "PARTIAL", "PENDING"].includes(status))
-      feeRecord.status = status;
+
+    feeRecord.paidAmount = toMoney(feeRecord.totalFee - feeRecord.dueAmount);
+
+    if(feeRecord.dueAmount <= 0){
+      feeRecord.status = "PAID";
+    } else if (feeRecord.dueAmount > 0 && feeRecord.dueAmount < feeRecord.totalFee) {
+      feeRecord.status = "PARTIAL";
+    } else {
+      feeRecord.status = "PENDING";
+    }
 
     feeRecord.updatedBy = req.user._id;
     await feeRecord.save();
@@ -603,8 +655,10 @@ const createPayment = async (req, res) => {
   try {
     const { feeRecordId, amount, lateFee = 0, method, transactionId = "", remarks = "" } = req.body;
     const userRole = req.user?.role?.role || req.user?.role;
+    const normalizedAmount = toMoney(amount);
+    const normalizedLateFee = toMoney(lateFee);
 
-    if (!feeRecordId || !amount || !method) {
+    if (!feeRecordId || amount === undefined || amount === null || !method) {
       return res.status(400).json(formatResponse(false, "Missing required fields"));
     }
 
@@ -618,7 +672,7 @@ const createPayment = async (req, res) => {
     }
 
     // Student can only pay their own fees
-    if (userRole === "student" && feeRecord.user._id.toString() !== req.user._id.toString()) {
+    if (userRole === "student" ) {
       return res.status(403).json(formatResponse(false, "Access denied"));
     }
 
@@ -626,24 +680,43 @@ const createPayment = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
+    if(normalizedAmount <= 0){
+      return res.status(400).json(formatResponse(false, "Payment amount must be greater than zero"));
+    }
+
+    if(normalizedLateFee < 0){
+      return res.status(400).json(formatResponse(false, "lateFee cannot be negative"));
+    }
+
+    if(toMoney(normalizedAmount + normalizedLateFee) > toMoney(feeRecord.dueAmount)){
+      return res.status(400).json(formatResponse(false, "Total payment (amount + lateFee) cannot be greater than due amount"));
+    }
+
+    let feeStatus = "PENDING";
+    if (toMoney(normalizedAmount + normalizedLateFee) === toMoney(feeRecord.dueAmount)) {
+      feeStatus = "PAID";
+    } else if (toMoney(feeRecord.dueAmount - (normalizedAmount + normalizedLateFee)) > 0) {
+      feeStatus = "PARTIAL";
+    }
+
     const payment = await Payment.create({
       user: feeRecord.user._id,
       school: req.user.school._id,
       feeRecordId,
-      amount,
-      lateFee,
+      amount: normalizedAmount,
+      lateFee: normalizedLateFee,
       method,
       transactionId,
       remarks,
       status: "SUCCESS",
       paidAt: new Date(),
-      createdBy: userRole === "student" ? req.user._id : req.user._id,
+      createdBy: req.user._id,
       updatedBy: req.user._id,
     });
 
     // Update fee record
-    const newPaidAmount = feeRecord.paidAmount + amount + lateFee;
-    const newDueAmount = Math.max(0, feeRecord.dueAmount - amount);
+    const newPaidAmount = toMoney(feeRecord.paidAmount + normalizedAmount + normalizedLateFee);
+    const newDueAmount = toMoney(Math.max(0, feeRecord.dueAmount - normalizedAmount - normalizedLateFee));
 
     let newStatus = "PENDING";
     if (newDueAmount === 0) {
@@ -656,8 +729,8 @@ const createPayment = async (req, res) => {
     feeRecord.dueAmount = newDueAmount;
     feeRecord.status = newStatus;
     feeRecord.history.push({
-      amount,
-      lateFee,
+      amount: normalizedAmount,
+      lateFee: normalizedLateFee,
       method,
       transactionId,
       paymentId: payment._id,
@@ -1065,6 +1138,11 @@ const createFeeRecordForClassStudents = async (req, res) => {
       notes = "",
     } = req.body;
 
+    const normalizedTotalFee = toMoney(totalFee);
+    const normalizedDueAmount = toMoney(dueAmount);
+    const normalizedDiscount = toMoney(discount);
+    const normalizedFine = toMoney(fine);
+
     if (!classId || !month || !year || !totalFee || dueAmount === undefined) {
       return res.status(400).json(formatResponse(false, "classId, month, year, totalFee, and dueAmount are required"));
     }
@@ -1072,6 +1150,20 @@ const createFeeRecordForClassStudents = async (req, res) => {
     if (month < 1 || month > 12) {
       return res.status(400).json(formatResponse(false, "Month must be 1-12"));
     }
+    if(normalizedTotalFee < 0 || normalizedDueAmount < 0 || normalizedDiscount < 0 || normalizedFine < 0) {
+      return res.status(400).json(formatResponse(false, "totalFee, dueAmount, discount and fine must be non-negative"));
+    }
+    if(totalFee !== undefined && dueAmount !== undefined && normalizedDueAmount > normalizedTotalFee) {
+      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
+    }
+
+    let status = "PENDING";
+    if (normalizedDueAmount <= 0) {
+      status = "PAID";
+    } else if (normalizedDueAmount > 0 && normalizedDueAmount < normalizedTotalFee) {
+      status = "PARTIAL";
+    }
+
 
     const cls = await Class.findById(classId).select("_id school");
     if (!cls) {
@@ -1121,14 +1213,14 @@ const createFeeRecordForClassStudents = async (req, res) => {
           class: classId,
           month: parseInt(month),
           year: parseInt(year),
-          totalFee,
-          dueAmount,
-          discount,
-          fine,
+          totalFee: normalizedTotalFee,
+          dueAmount: normalizedDueAmount,
+          discount: normalizedDiscount,
+          fine: normalizedFine,
           dueDate: dueDate ? new Date(dueDate) : null,
           notes,
-          status: "PENDING",
-          paidAmount: 0,
+          status: status,
+          paidAmount: toMoney(normalizedTotalFee - normalizedDueAmount),
           createdBy: req.user._id,
           updatedBy: req.user._id,
         });
@@ -1173,12 +1265,30 @@ const createFeeRecordForSchoolStudents = async (req, res) => {
       notes = "",
     } = req.body;
 
+    const normalizedTotalFee = toMoney(totalFee);
+    const normalizedDueAmount = toMoney(dueAmount);
+    const normalizedDiscount = toMoney(discount);
+    const normalizedFine = toMoney(fine);
+
     if (!month || !year || !totalFee || dueAmount === undefined) {
       return res.status(400).json(formatResponse(false, "month, year, totalFee, and dueAmount are required"));
     }
 
     if (month < 1 || month > 12) {
       return res.status(400).json(formatResponse(false, "Month must be 1-12"));
+    }
+
+    if(normalizedTotalFee < 0 || normalizedDueAmount < 0 || normalizedDiscount < 0 || normalizedFine < 0) {
+      return res.status(400).json(formatResponse(false, "totalFee, dueAmount, discount and fine must be non-negative"));
+    }
+    if(totalFee !== undefined && dueAmount !== undefined && normalizedDueAmount > normalizedTotalFee) {
+      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
+    }
+    let status = "PENDING";
+    if (normalizedDueAmount <= 0) {
+      status = "PAID";
+    } else if (normalizedDueAmount > 0 && normalizedDueAmount < normalizedTotalFee) {
+      status = "PARTIAL";
     }
 
     // Get all students in the school
@@ -1224,14 +1334,14 @@ const createFeeRecordForSchoolStudents = async (req, res) => {
           class: student.class,
           month: parseInt(month),
           year: parseInt(year),
-          totalFee,
-          dueAmount,
-          discount,
-          fine,
+          totalFee: normalizedTotalFee,
+          dueAmount: normalizedDueAmount,
+          discount: normalizedDiscount,
+          fine: normalizedFine,
           dueDate: dueDate ? new Date(dueDate) : null,
           notes,
-          status: "PENDING",
-          paidAmount: 0,
+          status,
+          paidAmount: toMoney(normalizedTotalFee - normalizedDueAmount),
           createdBy: req.user._id,
           updatedBy: req.user._id,
         });

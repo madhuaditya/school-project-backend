@@ -20,6 +20,12 @@ const formatResponse = (success, msg, data = null, error = null) => {
   };
 };
 
+const toMoney = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
 const parseComponentValues = (components = {}, allowPartial = false) => {
   const parsed = {};
 
@@ -34,7 +40,7 @@ const parseComponentValues = (components = {}, allowPartial = false) => {
       return { error: `Invalid value for ${key}` };
     }
 
-    parsed[key] = value;
+    parsed[key] = toMoney(value);
   }
 
   if (allowPartial && Object.keys(parsed).length === 0) {

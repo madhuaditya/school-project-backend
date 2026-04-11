@@ -19,6 +19,12 @@ const isSalaryEligibleUser = (userDoc) => {
   return !!roleName && SALARY_ELIGIBLE_ROLES.includes(roleName);
 };
 
+const toMoney = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
 // ==================== SALARY RECORD MANAGEMENT ====================
 
 const createSalaryRecord = async (req, res) => {
@@ -71,30 +77,32 @@ const createSalaryRecord = async (req, res) => {
     }
 
     const earningsValues = {
-      basic: earnings.basic || 0,
-      hra: earnings.hra || 0,
-      da: earnings.da || 0,
-      bonus: earnings.bonus || 0,
+      basic: toMoney(earnings.basic || 0),
+      hra: toMoney(earnings.hra || 0),
+      da: toMoney(earnings.da || 0),
+      bonus: toMoney(earnings.bonus || 0),
     };
 
     const deductionsValues = {
-      pf: deductions.pf || 0,
-      tax: deductions.tax || 0,
-      other: deductions.other || 0,
-      leaveDeduction: deductions.leaveDeduction || 0,
+      pf: toMoney(deductions.pf || 0),
+      tax: toMoney(deductions.tax || 0),
+      other: toMoney(deductions.other || 0),
+      leaveDeduction: toMoney(deductions.leaveDeduction || 0),
     };
 
-    const totalEarnings =
+    const totalEarnings = toMoney(
       earningsValues.basic +
       earningsValues.hra +
       earningsValues.da +
-      earningsValues.bonus;
-    const totalDeductions =
+      earningsValues.bonus
+    );
+    const totalDeductions = toMoney(
       deductionsValues.pf +
       deductionsValues.tax +
       deductionsValues.other +
-      deductionsValues.leaveDeduction;
-    const netSalary = totalEarnings - totalDeductions;
+      deductionsValues.leaveDeduction
+    );
+    const netSalary = toMoney(totalEarnings - totalDeductions);
 
     const record = await SalaryRecord.create({
       staffId,
@@ -102,7 +110,7 @@ const createSalaryRecord = async (req, res) => {
       user: staff._id,
       month,
       year,
-      baseSalary: baseSalary || 0,
+      baseSalary: toMoney(baseSalary || 0),
       earnings: earningsValues,
       deductions: deductionsValues,
       totalEarnings,
@@ -146,48 +154,50 @@ const updateSalaryRecord = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
-    if (baseSalary !== undefined) record.baseSalary = baseSalary;
+    if (baseSalary !== undefined) record.baseSalary = toMoney(baseSalary);
     if (remarks !== undefined) record.remarks = remarks;
     if (paymentDate !== undefined) record.paymentDate = paymentDate ? new Date(paymentDate) : null;
     if (status && ["PAID", "PARTIAL", "UNPAID"].includes(status)) record.status = status;
 
     if (earnings && typeof earnings === "object") {
       const newEarnings = {
-        basic: earnings.basic !== undefined ? earnings.basic : record.earnings.basic,
-        hra: earnings.hra !== undefined ? earnings.hra : record.earnings.hra,
-        da: earnings.da !== undefined ? earnings.da : record.earnings.da,
-        bonus: earnings.bonus !== undefined ? earnings.bonus : record.earnings.bonus,
+        basic: earnings.basic !== undefined ? toMoney(earnings.basic) : toMoney(record.earnings.basic),
+        hra: earnings.hra !== undefined ? toMoney(earnings.hra) : toMoney(record.earnings.hra),
+        da: earnings.da !== undefined ? toMoney(earnings.da) : toMoney(record.earnings.da),
+        bonus: earnings.bonus !== undefined ? toMoney(earnings.bonus) : toMoney(record.earnings.bonus),
       };
       record.earnings = newEarnings;
     }
 
     if (deductions && typeof deductions === "object") {
       const newDeductions = {
-        pf: deductions.pf !== undefined ? deductions.pf : record.deductions.pf,
-        tax: deductions.tax !== undefined ? deductions.tax : record.deductions.tax,
-        other: deductions.other !== undefined ? deductions.other : record.deductions.other,
+        pf: deductions.pf !== undefined ? toMoney(deductions.pf) : toMoney(record.deductions.pf),
+        tax: deductions.tax !== undefined ? toMoney(deductions.tax) : toMoney(record.deductions.tax),
+        other: deductions.other !== undefined ? toMoney(deductions.other) : toMoney(record.deductions.other),
         leaveDeduction:
           deductions.leaveDeduction !== undefined
-            ? deductions.leaveDeduction
-            : record.deductions.leaveDeduction,
+            ? toMoney(deductions.leaveDeduction)
+            : toMoney(record.deductions.leaveDeduction),
       };
       record.deductions = newDeductions;
     }
 
-    const totalEarnings =
+    const totalEarnings = toMoney(
       record.earnings.basic +
       record.earnings.hra +
       record.earnings.da +
-      record.earnings.bonus;
-    const totalDeductions =
+      record.earnings.bonus
+    );
+    const totalDeductions = toMoney(
       record.deductions.pf +
       record.deductions.tax +
       record.deductions.other +
-      record.deductions.leaveDeduction;
+      record.deductions.leaveDeduction
+    );
 
     record.totalEarnings = totalEarnings;
     record.totalDeductions = totalDeductions;
-    record.netSalary = totalEarnings - totalDeductions;
+    record.netSalary = toMoney(totalEarnings - totalDeductions);
     record.updatedBy = req.user._id;
 
     await record.save();
@@ -584,8 +594,9 @@ const getPendingSalaries = async (req, res) => {
 const recordSalaryPayment = async (req, res) => {
   try {
     const { salaryRecordId, amount, method, transactionId = "" } = req.body;
+    const paymentAmount = toMoney(amount);
 
-    if (!salaryRecordId || !amount || !method) {
+    if (!salaryRecordId || amount === undefined || amount === null || !method) {
       return res.status(400).json(formatResponse(false, "Missing required fields"));
     }
 
@@ -601,11 +612,19 @@ const recordSalaryPayment = async (req, res) => {
     if (record.school.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
+    if (paymentAmount <= 0) {
+      return res.status(400).json(formatResponse(false, "Payment amount must be greater than zero"));
+    }
+    console.log("Recording payment of amount:", paymentAmount, "for salary record:", salaryRecordId , "net salary:", record.netSalary, "paid amount so far:", record.paidAmount);
 
+    const pendingBeforePayment = toMoney(record.netSalary - record.paidAmount);
+    if (paymentAmount > pendingBeforePayment) {
+      return res.status(400).json(formatResponse(false, "Payment amount exceeds pending salary"));
+    }
     const payment = await SalaryPayment.create({
       staffId: record.staffId,
       salaryRecordId,
-      amount,
+      amount: paymentAmount,
       method,
       transactionId,
       status: "SUCCESS",
@@ -615,8 +634,8 @@ const recordSalaryPayment = async (req, res) => {
       school: req.user.school._id,
     });
 
-    const newPaidAmount = record.paidAmount + amount;
-    const pendingAmount = record.netSalary - newPaidAmount;
+    const newPaidAmount = toMoney(record.paidAmount + paymentAmount);
+    const pendingAmount = toMoney(record.netSalary - newPaidAmount);
 
     let newStatus = "UNPAID";
     if (pendingAmount <= 0) {
@@ -638,6 +657,7 @@ const recordSalaryPayment = async (req, res) => {
       .status(201)
       .json(formatResponse(true, "Salary payment recorded successfully", populated));
   } catch (error) {
+    console.error("Error recording salary payment:", error);
     return res
       .status(500)
       .json(formatResponse(false, "Error recording payment", null, error.message));

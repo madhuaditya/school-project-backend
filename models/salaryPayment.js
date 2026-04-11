@@ -1,10 +1,16 @@
 const mongoose = require("mongoose");
 
+const roundToTwoDecimals = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
 const salaryPaymentSchema = new mongoose.Schema(
   {
     staffId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Staff",
+      ref: "User",
       required: true,
     },
 
@@ -20,7 +26,7 @@ const salaryPaymentSchema = new mongoose.Schema(
       required: true,
     },
 
-    amount: { type: Number, required: true, min: 0 },
+    amount: { type: Number, required: true, min: 0, set: roundToTwoDecimals },
 
     method: {
       type: String,

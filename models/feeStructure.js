@@ -1,5 +1,11 @@
 const mongoose = require("mongoose");
 
+const roundToTwoDecimals = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
 const feeStructureSchema = new mongoose.Schema(
   {
     class: {
@@ -9,12 +15,12 @@ const feeStructureSchema = new mongoose.Schema(
       unique: true,
     },
     components: {
-      tuition: { type: Number, default: 0 },
-      exam: { type: Number, default: 0 },
-      transport: { type: Number, default: 0 },
-      hostel: { type: Number, default: 0 },
-      activity: { type: Number, default: 0 },
-      development: { type: Number, default: 0 },
+      tuition: { type: Number, default: 0, set: roundToTwoDecimals },
+      exam: { type: Number, default: 0, set: roundToTwoDecimals },
+      transport: { type: Number, default: 0, set: roundToTwoDecimals },
+      hostel: { type: Number, default: 0, set: roundToTwoDecimals },
+      activity: { type: Number, default: 0, set: roundToTwoDecimals },
+      development: { type: Number, default: 0, set: roundToTwoDecimals },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
