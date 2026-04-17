@@ -20,11 +20,14 @@ const salaryPaymentSchema = new mongoose.Schema(
       required: true,
     },
 
-    salaryRecordId: {
+    salaryStructureId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SalaryRecord",
+      ref: "SalaryStructure",
       required: true,
     },
+
+    month: { type: Number, required: true, min: 1, max: 12 },
+    year: { type: Number, required: true },
 
     amount: { type: Number, required: true, min: 0, set: roundToTwoDecimals },
 
@@ -60,8 +63,8 @@ const salaryPaymentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-salaryPaymentSchema.index({ school: 1, staffId: 1 });
-salaryPaymentSchema.index({ school: 1, salaryRecordId: 1 });
+salaryPaymentSchema.index({ school: 1, staffId: 1, month: 1, year: 1 });
+salaryPaymentSchema.index({ school: 1, salaryStructureId: 1 });
 salaryPaymentSchema.index({ school: 1, status: 1 });
 salaryPaymentSchema.index({ school: 1, paidAt: -1 });
 

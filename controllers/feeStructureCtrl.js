@@ -11,14 +11,12 @@ const COMPONENT_KEYS = [
   "development",
 ];
 
-const formatResponse = (success, msg, data = null, error = null) => {
-  return {
-    success,
-    msg,
-    ...(data && { data }),
-    ...(error && { error }),
-  };
-};
+const formatResponse = (success, msg, data = null, error = null) => ({
+  success,
+  msg,
+  ...(data && { data }),
+  ...(error && { error }),
+});
 
 const toMoney = (value) => {
   const num = Number(value);
@@ -67,13 +65,6 @@ const createFeeStructure = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Class not in your school"));
     }
 
-    const exists = await FeeStructure.findOne({ class: classId }).select("_id");
-    if (exists) {
-      return res
-        .status(409)
-        .json(formatResponse(false, "Fee structure already exists for this class need to delete or update existing one"));
-    }
-
     const { parsed, error } = parseComponentValues(components);
     if (error) {
       return res.status(400).json(formatResponse(false, error));
@@ -81,6 +72,7 @@ const createFeeStructure = async (req, res) => {
 
     const feeStructure = await FeeStructure.create({
       class: classId,
+      school: req.user.school._id,
       components: parsed,
       createdBy: req.user._id,
       updatedBy: req.user._id,
@@ -88,6 +80,7 @@ const createFeeStructure = async (req, res) => {
 
     const populated = await FeeStructure.findById(feeStructure._id)
       .populate("class", "_id name grade section")
+      .populate("school", "_id schoolName")
       .populate("createdBy", "_id name email")
       .populate("updatedBy", "_id name email");
 
@@ -103,11 +96,9 @@ const createFeeStructure = async (req, res) => {
 
 const getAllFeeStructures = async (req, res) => {
   try {
-    const classes = await Class.find({ school: req.user.school._id }).select("_id");
-    const classIds = classes.map((item) => item._id);
-
-    const feeStructures = await FeeStructure.find({ class: { $in: classIds } })
+    const feeStructures = await FeeStructure.find({ school: req.user.school._id })
       .populate("class", "_id name grade section")
+      .populate("school", "_id schoolName")
       .populate("createdBy", "_id name email")
       .populate("updatedBy", "_id name email")
       .sort({ createdAt: -1 });
@@ -139,22 +130,23 @@ const getFeeStructureByClass = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Class not in your school"));
     }
 
-    const feeStructure = await FeeStructure.findOne({ class: classId })
+    const feeStructures = await FeeStructure.find({
+      class: classId,
+      school: req.user.school._id,
+    })
       .populate("class", "_id name grade section")
+      .populate("school", "_id schoolName")
       .populate("createdBy", "_id name email")
-      .populate("updatedBy", "_id name email");
-
-    if (!feeStructure) {
-      return res.status(404).json(formatResponse(false, "Fee structure not found"));
-    }
+      .populate("updatedBy", "_id name email")
+      .sort({ createdAt: -1 });
 
     return res
       .status(200)
-      .json(formatResponse(true, "Fee structure fetched successfully", feeStructure));
+      .json(formatResponse(true, "Fee structures fetched successfully", feeStructures));
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error fetching fee structure", null, error.message));
+      .json(formatResponse(false, "Error fetching fee structures", null, error.message));
   }
 };
 
@@ -167,7 +159,8 @@ const getFeeStructureById = async (req, res) => {
     }
 
     const feeStructure = await FeeStructure.findById(id)
-      .populate("class", "_id name grade section school")
+      .populate("class", "_id name grade section")
+      .populate("school", "_id schoolName")
       .populate("createdBy", "_id name email")
       .populate("updatedBy", "_id name email");
 
@@ -175,7 +168,7 @@ const getFeeStructureById = async (req, res) => {
       return res.status(404).json(formatResponse(false, "Fee structure not found"));
     }
 
-    if (!feeStructure.class || feeStructure.class.school.toString() !== req.user.school._id.toString()) {
+    if (!feeStructure.school || feeStructure.school._id.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
@@ -198,12 +191,12 @@ const updateFeeStructure = async (req, res) => {
       return res.status(400).json(formatResponse(false, "Valid id is required"));
     }
 
-    const feeStructure = await FeeStructure.findById(id).populate("class", "_id school");
+    const feeStructure = await FeeStructure.findById(id).populate("class", "_id school").populate("school", "_id");
     if (!feeStructure) {
       return res.status(404).json(formatResponse(false, "Fee structure not found"));
     }
 
-    if (!feeStructure.class || feeStructure.class.school.toString() !== req.user.school._id.toString()) {
+    if (!feeStructure.school || feeStructure.school._id.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
@@ -221,18 +214,8 @@ const updateFeeStructure = async (req, res) => {
         return res.status(403).json(formatResponse(false, "Class not in your school"));
       }
 
-      const duplicate = await FeeStructure.findOne({
-        class: classId,
-        _id: { $ne: id },
-      }).select("_id");
-
-      if (duplicate) {
-        return res
-          .status(409)
-          .json(formatResponse(false, "Fee structure already exists for this class"));
-      }
-
       feeStructure.class = classId;
+      feeStructure.school = req.user.school._id;
     }
 
     if (components !== undefined) {
@@ -256,6 +239,7 @@ const updateFeeStructure = async (req, res) => {
 
     const populated = await FeeStructure.findById(feeStructure._id)
       .populate("class", "_id name grade section")
+      .populate("school", "_id schoolName")
       .populate("createdBy", "_id name email")
       .populate("updatedBy", "_id name email");
 
@@ -270,30 +254,9 @@ const updateFeeStructure = async (req, res) => {
 };
 
 const deleteFeeStructure = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json(formatResponse(false, "Valid id is required"));
-    }
-
-    const feeStructure = await FeeStructure.findById(id).populate("class", "_id school");
-    if (!feeStructure) {
-      return res.status(404).json(formatResponse(false, "Fee structure not found"));
-    }
-
-    if (!feeStructure.class || feeStructure.class.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    await feeStructure.deleteOne();
-
-    return res.status(200).json(formatResponse(true, "Fee structure deleted successfully"));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error deleting fee structure", null, error.message));
-  }
+  return res
+    .status(405)
+    .json(formatResponse(false, "Fee structure deletion is disabled. You can update structure instead."));
 };
 
 module.exports = {

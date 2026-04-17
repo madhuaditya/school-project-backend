@@ -8,6 +8,7 @@ const mongoose = require('mongoose');
 const VALID_ROLES = ['admin', 'teacher', 'student', 'staff', 'school'];
 const Teacher = require('../models/teacher');
 const Admin = require('../models/admin');
+const Subscription = require('../models/subscription');
 const { validateStudentAndAdminofSchool } = require('../middleware/ValidateRelation');
 
 // ==================== RESPONSE FORMAT ====================
@@ -19,6 +20,51 @@ const formatResponse = (success, msg, data = null, error = null) => {
     ...(error && { error }),
   };
 };
+
+const serializeSubscription = (subscription) => {
+  if (!subscription) return null;
+
+  return {
+    _id: subscription._id,
+    school: subscription.school,
+    planName: subscription.planName,
+    status: subscription.status,
+    billingCycle: subscription.billingCycle,
+    price: subscription.price,
+    currency: subscription.currency,
+    startsAt: subscription.startsAt,
+    endsAt: subscription.endsAt,
+    trialEndsAt: subscription.trialEndsAt,
+    autoRenew: subscription.autoRenew,
+    features: subscription.features || [],
+    notes: subscription.notes,
+    lastPaymentAt: subscription.lastPaymentAt,
+    nextBillingAt: subscription.nextBillingAt,
+    createdAt: subscription.createdAt,
+    updatedAt: subscription.updatedAt,
+  };
+};
+
+const DEFAULT_TRIAL_FEATURES = [
+  'attendance',
+  'class-management',
+  'subject-management',
+  'teacher-management',
+  'student-management',
+  'progress',
+  'dashboard',
+  'notice',
+  'timetable',
+  'feedback',
+  'chat',
+  'reply',
+  'fee-structure',
+  'salary-structure',
+  'fee-management',
+  'salary-management',
+  'alert',
+  'profile',
+];
 
 const createHttpError = (statusCode, message) => {
   const error = new Error(message);
@@ -640,6 +686,30 @@ const registerSchool = async (req, res) => {
       pinCode,
       role: roleDoc._id
     });
+
+    const trialStart = new Date();
+    const trialEnd = new Date(trialStart);
+    trialEnd.setMonth(trialEnd.getMonth() + 6);
+
+    const trialSubscription = await Subscription.create({
+      school: sch._id,
+      planName: 'Startup Trial',
+      status: 'trial',
+      billingCycle: 'custom',
+      price: 0,
+      currency: 'INR',
+      startsAt: trialStart,
+      endsAt: trialEnd,
+      trialEndsAt: trialEnd,
+      autoRenew: true,
+      features: DEFAULT_TRIAL_FEATURES,
+      notes: 'Auto-created 6 month trial at school registration',
+      lastPaymentAt: trialStart,
+      nextBillingAt: trialEnd,
+    });
+
+    sch.subscription = trialSubscription._id;
+    await sch.save();
     
     await sendMail(
       sch.email,
@@ -647,7 +717,12 @@ const registerSchool = async (req, res) => {
       `<p>Your school has been registered successfully!</p><p>School Name: ${sch.schoolName}</p><p>Email: ${sch.email}</p>`
     );
     
-    return res.status(201).json(formatResponse(true, 'School registered successfully', { schoolId: sch._id }));
+    return res.status(201).json(
+      formatResponse(true, 'School registered successfully', {
+        schoolId: sch._id,
+        subscription: serializeSubscription(trialSubscription),
+      })
+    );
   } catch (error) {
     return res.status(500).json(formatResponse(false, 'Error registering school', null, error.message));
   }
@@ -667,6 +742,27 @@ const loginSchool = async (req, res) => {
     const refreshToken = genRT(sch);
     sch.refreshToken = refreshToken;
     await sch.save();
+
+    let subscription = await Subscription.findOne({ school: sch._id }).populate('school', '_id schoolName schoolId');
+    if (!subscription) {
+      subscription = await Subscription.create({
+        school: sch._id,
+        planName: 'Basic',
+        status: 'inactive',
+        billingCycle: 'monthly',
+        price: 0,
+        currency: 'INR',
+        startsAt: null,
+        endsAt: null,
+        autoRenew: false,
+        features: [],
+        notes: 'Subscription record created automatically on school login',
+      });
+      subscription = await Subscription.findById(subscription._id).populate('school', '_id schoolName schoolId');
+    }
+
+    sch.subscription = subscription?._id || sch.subscription;
+    await sch.save();
     
     await sendMail(
       sch.email,
@@ -680,10 +776,12 @@ const loginSchool = async (req, res) => {
         email: sch.email, 
         schoolName: sch.schoolName, 
         image: sch.image, 
-        role: sch.role 
+        role: sch.role,
+        subscription: serializeSubscription(subscription),
       }, 
       token,
-      refreshToken
+      refreshToken,
+      subscription: serializeSubscription(subscription)
     }));
   } catch (error) {
     return res.status(500).json(formatResponse(false, 'Error during school login', null, error.message));

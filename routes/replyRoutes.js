@@ -9,11 +9,11 @@ const {
 } = require('../controllers/replyCtrl');
 const { validateUser } = require('../middleware/auth');
 const { validateReplyMessage, validatePagination } = require('../middleware/chatValidate');
-
+const { checkSubscriptionActive } = require('../middleware/subscriptionCheck');
 const r = express.Router();
 
 // Apply authentication to all routes
-r.use(validateUser);
+r.use(validateUser, checkSubscriptionActive);
 
 // Create new reply
 r.post('/create', validateReplyMessage, createReply);

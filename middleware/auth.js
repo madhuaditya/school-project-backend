@@ -21,7 +21,7 @@ const validateUser = (req, res, next) => {
     const user = await User.findById(new mongoose.Types.ObjectId(d._id)).populate('role', 'role').populate('school', '_id name');
       // console.log("nhi fata hai yahan par 002");
     // console.log("user ", user._id);
-    const school = await School.findById(new mongoose.Types.ObjectId(d._id)).populate('role', 'role');
+    const school = await School.findById(new mongoose.Types.ObjectId(d._id)).populate('role', 'role').populate('subscription');
     // console.log("school ", school._id);
       // console.log("nhi fata hai yahan par 003");
 

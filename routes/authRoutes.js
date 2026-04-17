@@ -34,12 +34,14 @@ const {
 } = require("../middleware/validate");
 const { allow } = require("../middleware/role");
 const { validateUser } = require("../middleware/auth");
+const { checkSubscriptionActive } = require("../middleware/subscriptionCheck");
 
 const r = express.Router();
 
 r.post(
   "/register",
   validateUser,
+  checkSubscriptionActive,
   allow("admin", "teacher", "school"),
   validateRegister,
   register,
@@ -47,16 +49,16 @@ r.post(
 r.post("/login", validateUserLogin, login);
 r.post("/refresh", refresh);
 r.post("/logout", logout);
-r.post("/change-password", validateUser, changePassword);
+r.post("/change-password", validateUser, checkSubscriptionActive, changePassword);
 r.post("/forgot-password", validateForgotPassword, forgotPassword);
 r.post("/reset-password", resetPassword);
-r.post("/change-role", validateUser, allow("admin", ), changeRole);
-r.post("/update-user/:id", validateUser,validateUpdate, allow("admin",'teacher','staff' , 'student'), updateUser);
-r.post("/delete-user/:id", validateUser, allow("admin"), deleteTemp);
-r.post("/delete-user-permanent/:id", validateUser, allow("admin"), deletePermanently);
-r.post("/reinstate-user/:id", validateUser, allow("admin"), reinistateUser);
-r.get("/admin/all", validateUser, allow("admin"), getAllAdminsInSchool);
-r.get("/staff/all", validateUser, allow("admin"), getAllStaffInSchool);
+r.post("/change-role", validateUser, checkSubscriptionActive, allow("admin", ), changeRole);
+r.post("/update-user/:id", validateUser, checkSubscriptionActive, validateUpdate, allow("admin",'teacher','staff' , 'student'), updateUser);
+r.post("/delete-user/:id", validateUser, checkSubscriptionActive, allow("admin"), deleteTemp);
+r.post("/delete-user-permanent/:id", validateUser, checkSubscriptionActive, allow("admin"), deletePermanently);
+r.post("/reinstate-user/:id", validateUser, checkSubscriptionActive, allow("admin"), reinistateUser);
+r.get("/admin/all", validateUser, checkSubscriptionActive, allow("admin"), getAllAdminsInSchool);
+r.get("/staff/all", validateUser, checkSubscriptionActive, allow("admin"), getAllStaffInSchool);
 
 // School routes
 r.post("/school/register", validateSChoolRegister, registerSchool);

@@ -14,11 +14,20 @@ const paymentSchema = new mongoose.Schema(
       required: true,
     },
 
-    feeRecordId: {
+    class: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "FeeRecord",
+      ref: "Class",
       required: true,
     },
+
+    feeStructureId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FeeStructure",
+      required: true,
+    },
+
+    month: { type: Number, required: true, min: 1, max: 12 },
+    year: { type: Number, required: true },
 
     amount: { type: Number, required: true, min: 0 },
     lateFee: { type: Number, default: 0, min: 0 },
@@ -55,8 +64,9 @@ const paymentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-paymentSchema.index({ school: 1, user: 1 });
-paymentSchema.index({ school: 1, feeRecordId: 1 });
+paymentSchema.index({ school: 1, user: 1, month: 1, year: 1 });
+paymentSchema.index({ school: 1, class: 1, month: 1, year: 1 });
+paymentSchema.index({ school: 1, feeStructureId: 1 });
 paymentSchema.index({ school: 1, status: 1 });
 paymentSchema.index({ school: 1, paidAt: -1 });
 

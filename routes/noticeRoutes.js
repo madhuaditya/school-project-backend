@@ -6,12 +6,12 @@ const {
   deleteNotice,
   getValidNoticesForSchool,
 } = require('../controllers/noticeCtrl');
-
+const { checkSubscriptionActive } = require('../middleware/subscriptionCheck');
 const router = express.Router();
 
-router.get('/valid', validateUser, getValidNoticesForSchool);
-router.post('/', validateUser, createNotice);
-router.put('/:id', validateUser, updateNotice);
-router.delete('/:id', validateUser, deleteNotice);
+router.get('/valid', validateUser, checkSubscriptionActive, getValidNoticesForSchool);
+router.post('/', validateUser, checkSubscriptionActive, createNotice);
+router.put('/:id', validateUser, checkSubscriptionActive, updateNotice);
+router.delete('/:id', validateUser, checkSubscriptionActive, deleteNotice);
 
 module.exports = router;

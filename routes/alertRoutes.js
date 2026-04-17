@@ -2,10 +2,11 @@ const express = require("express");
 const { createAlert, getUnviewedAlerts, markAsViewed } = require("../controllers/alertCtrl");
 const { validateUser } = require("../middleware/auth");
 const { allow } = require("../middleware/role");
+const { checkSubscriptionActive } = require("../middleware/subscriptionCheck");
 
 const router = express.Router();
 
-router.use(validateUser);
+router.use(validateUser, checkSubscriptionActive);
 
 // ==================== ALERT ROUTES ====================
 

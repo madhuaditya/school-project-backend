@@ -1,19 +1,17 @@
 const mongoose = require("mongoose");
-const FeeRecord = require("../models/feeRecord");
 const Payment = require("../models/payment");
-const Alert = require("../models/alert");
+const FeeStructure = require("../models/feeStructure");
 const Student = require("../models/student");
 const Class = require("../models/class");
-const User = require("../models/user");
 
-const formatResponse = (success, msg, data = null, error = null) => {
-  return {
-    success,
-    msg,
-    ...(data && { data }),
-    ...(error && { error }),
-  };
-};
+const FEE_METHODS = ["UPI", "CARD", "NETBANKING", "CASH"];
+
+const formatResponse = (success, msg, data = null, error = null) => ({
+  success,
+  msg,
+  ...(data && { data }),
+  ...(error && { error }),
+});
 
 const toMoney = (value) => {
   const num = Number(value);
@@ -21,688 +19,212 @@ const toMoney = (value) => {
   return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
-// ==================== FEE RECORD MANAGEMENT ====================
+const sumObjectValues = (obj = {}) =>
+  Object.values(obj).reduce((acc, value) => acc + toMoney(value || 0), 0);
 
-const createFeeRecord = async (req, res) => {
-  try {
-    const {
-      userId,
+const getFeeStructureTotal = (structure) =>
+  toMoney(sumObjectValues(structure?.components || {}));
+
+const deriveStatus = ({ paymentCount, expectedAmount, paidAmount }) => {
+  if (paymentCount === 0) return "PENDING";
+  if (toMoney(paidAmount) >= toMoney(expectedAmount)) return "PAID";
+  return "PARTIAL";
+};
+
+const getStudentContext = async (schoolId, studentId) => {
+  const student = await Student.findOne({ user: studentId })
+    .populate("class", "_id school name grade section")
+    .populate("user", "_id school name email");
+
+  if (!student || !student.user) {
+    return { error: { code: 404, message: "Student not found" } };
+  }
+
+  if (student.user.school.toString() !== schoolId.toString()) {
+    return { error: { code: 403, message: "Unauthorized school access" } };
+  }
+
+  if (!student.class) {
+    return { error: { code: 400, message: "Student is not assigned to a class" } };
+  }
+
+  if (student.class.school.toString() !== schoolId.toString()) {
+    return { error: { code: 403, message: "Student class not in your school" } };
+  }
+
+  return { student };
+};
+
+const getPeriodPayments = async ({ schoolId, studentId, month, year }) => {
+  const query = {
+    school: schoolId,
+    user: studentId,
+    month,
+    year,
+  };
+
+  const payments = await Payment.find(query)
+    .populate("feeStructureId", "_id class components")
+    .populate("class", "_id name grade section")
+    .sort({ paidAt: -1, createdAt: -1 });
+
+  return payments;
+};
+
+const buildMonthSummary = async ({ schoolId, studentId, month, year }) => {
+  const payments = await getPeriodPayments({ schoolId, studentId, month, year });
+
+  if (payments.length === 0) {
+    return {
       month,
       year,
-      totalFee,
-      dueAmount,
-      discount = 0,
-      fine = 0,
-      dueDate,
-      notes = "",
-    } = req.body;
-
-    const normalizedTotalFee = toMoney(totalFee);
-    const normalizedDueAmount = toMoney(dueAmount);
-    const normalizedDiscount = toMoney(discount);
-    const normalizedFine = toMoney(fine);
-
-    if (!userId || !month || !year || !totalFee || dueAmount === undefined) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "Missing required fields"));
-    }
-    if(normalizedDueAmount < 0){
-      return res.status(400).json(formatResponse(false, "dueAmount cannot be negative"));
-    }
-
-    if(normalizedDueAmount > normalizedTotalFee){
-      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
-    }
-
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
-    }
-
-    const student = await Student.findOne({ user: userId }).populate(
-      "class",
-      "_id school"
-    );
-    if (!student || !student.class) {
-      return res.status(404).json(formatResponse(false, "Student not found or not assigned to a class"));
-    }
-
-    if (student.class.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Student not in your school"));
-    }
-
-    const existing = await FeeRecord.findOne({
-      user: userId,
-      month,
-      year,
-      school: req.user.school._id,
-    }).select("_id");
-
-    if (existing) {
-      return res
-        .status(409)
-        .json(formatResponse(false, "Fee record already exists for this student, month and year"));
-    }
-
-    let status = "PENDING";
-    if (normalizedDueAmount <= 0) {
-      status = "PAID";
-    }
-    if (normalizedDueAmount > 0 && normalizedDueAmount < normalizedTotalFee) {
-      status = "PARTIAL";
-    }
-
-
-
-    const feeRecord = await FeeRecord.create({
-      user: userId,
-      school: req.user.school._id,
-      class: student.class._id,
-      month,
-      year,
-      totalFee: normalizedTotalFee,
-      dueAmount: normalizedDueAmount,
-      discount: normalizedDiscount,
-      fine: normalizedFine,
-      dueDate: dueDate ? new Date(dueDate) : null,
-      notes,
-      status,
-      paidAmount: toMoney(normalizedTotalFee - normalizedDueAmount),
-      createdBy: req.user._id,
-      updatedBy: req.user._id,
-    });
-
-    const populated = await FeeRecord.findById(feeRecord._id)
-      .populate("user", "_id name email")
-      .populate("class", "_id name")
-      .populate("school", "_id schoolName");
-
-    return res
-      .status(201)
-      .json(formatResponse(true, "Fee record created successfully", populated));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error creating fee record", null, error.message));
-  }
-};
-
-const updateFeeRecord = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { totalFee, dueAmount, discount, fine, dueDate, notes, status } =
-      req.body;
-    const normalizedTotalFee = totalFee !== undefined ? toMoney(totalFee) : undefined;
-    const normalizedDueAmount = dueAmount !== undefined ? toMoney(dueAmount) : undefined;
-    const normalizedDiscount = discount !== undefined ? toMoney(discount) : undefined;
-    const normalizedFine = fine !== undefined ? toMoney(fine) : undefined;
-
-     if(normalizedTotalFee !== undefined && normalizedTotalFee < 0){
-      return res.status(400).json(formatResponse(false, "totalFee cannot be negative"));
-    }
-    if(normalizedDueAmount !== undefined && normalizedDueAmount < 0){
-      return res.status(400).json(formatResponse(false, "dueAmount cannot be negative"));
-    }
-    const totalForValidation = normalizedTotalFee !== undefined ? normalizedTotalFee : undefined;
-    const dueForValidation = normalizedDueAmount !== undefined ? normalizedDueAmount : undefined;
-    if(totalForValidation !== undefined && dueForValidation !== undefined && dueForValidation > totalForValidation){
-      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
-    }
-
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json(formatResponse(false, "Valid id is required"));
-    }
-
-    const feeRecord = await FeeRecord.findById(id);
-    if (!feeRecord) {
-      return res.status(404).json(formatResponse(false, "Fee record not found"));
-    }
-
-    if (feeRecord.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    if (normalizedTotalFee !== undefined) feeRecord.totalFee = normalizedTotalFee;
-    if (normalizedDueAmount !== undefined) feeRecord.dueAmount = normalizedDueAmount;
-    if (normalizedDiscount !== undefined) feeRecord.discount = normalizedDiscount;
-    if (normalizedFine !== undefined) feeRecord.fine = normalizedFine;
-    if (dueDate !== undefined) feeRecord.dueDate = dueDate ? new Date(dueDate) : null;
-    if (notes !== undefined) feeRecord.notes = notes;
-
-    feeRecord.paidAmount = toMoney(feeRecord.totalFee - feeRecord.dueAmount);
-
-    if(feeRecord.dueAmount <= 0){
-      feeRecord.status = "PAID";
-    } else if (feeRecord.dueAmount > 0 && feeRecord.dueAmount < feeRecord.totalFee) {
-      feeRecord.status = "PARTIAL";
-    } else {
-      feeRecord.status = "PENDING";
-    }
-
-    feeRecord.updatedBy = req.user._id;
-    await feeRecord.save();
-
-    const populated = await FeeRecord.findById(feeRecord._id)
-      .populate("user", "_id name email")
-      .populate("class", "_id name")
-      .populate("school", "_id schoolName");
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Fee record updated successfully", populated));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error updating fee record", null, error.message));
-  }
-};
-
-const deleteFeeRecord = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json(formatResponse(false, "Valid id is required"));
-    }
-
-    const feeRecord = await FeeRecord.findById(id);
-    if (!feeRecord) {
-      return res.status(404).json(formatResponse(false, "Fee record not found"));
-    }
-
-    if (feeRecord.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    await Payment.deleteMany({ feeRecordId: id });
-    await feeRecord.deleteOne();
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Fee record deleted successfully"));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error deleting fee record", null, error.message));
-  }
-};
-
-const getFeeRecordById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userRole = req.user?.role?.role || req.user?.role;
-
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json(formatResponse(false, "Valid id is required"));
-    }
-
-    const feeRecord = await FeeRecord.findById(id)
-      .populate("user", "_id name email phone")
-      .populate("class", "_id name grade section")
-      .populate("school", "_id schoolName")
-      .populate("createdBy", "_id name")
-      .populate("updatedBy", "_id name")
-      .populate({
-        path: "history.paymentId",
-        select: "_id amount method transactionId status",
-      });
-
-    if (!feeRecord) {
-      return res.status(404).json(formatResponse(false, "Fee record not found"));
-    }
-
-    // Student can only see own fee records
-    if (userRole === "student" && feeRecord.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    // Admin must have same school
-    if (feeRecord.school._id.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Fee record fetched successfully", feeRecord));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching fee record", null, error.message));
-  }
-};
-
-const getStudentFeeByMonthYear = async (req, res) => {
-  try {
-    const { studentId, month, year } = req.params;
-    const userRole = req.user?.role?.role || req.user?.role;
-
-    if (!studentId || !month || !year) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "studentId, month and year are required"));
-    }
-
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
-    }
-
-    const student = await Student.findOne({ user: studentId }).populate(
-      "user",
-      "_id school name email"
-    );
-    if (!student) {
-      return res.status(404).json(formatResponse(false, "Student not found"));
-    }
-
-    // Student can only see own records
-    if (userRole === "student" && student.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (student.user.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    const feeRecord = await FeeRecord.findOne({
-      user: studentId,
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-    })
-      .populate("user", "_id name email")
-      .populate("class", "_id name grade section")
-      .populate("school", "_id schoolName")
-      .populate({
-        path: "history.paymentId",
-        select: "_id amount method transactionId status",
-      });
-
-    if (!feeRecord) {
-      return res.status(404).json(formatResponse(false, "No fee record found for this month and year"));
-    }
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Fee record fetched successfully", feeRecord));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching fee record", null, error.message));
-  }
-};
-
-const getStudentAllFees = async (req, res) => {
-  try {
-    const { studentId } = req.params;
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
-    const skip = (page - 1) * limit;
-    const userRole = req.user?.role?.role || req.user?.role;
-
-    if (!studentId) {
-      return res.status(400).json(formatResponse(false, "studentId is required"));
-    }
-
-    const student = await Student.findOne({ user: studentId }).populate(
-      "user",
-      "_id school name email"
-    );
-    if (!student) {
-      return res.status(404).json(formatResponse(false, "Student not found"));
-    }
-
-    // Student can only see own records
-    if (userRole === "student" && student.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (student.user.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    const baseQuery = {
-      user: studentId,
-      school: req.user.school._id,
+      studentId,
+      structureLocked: false,
+      feeStructureId: null,
+      expectedAmount: 0,
+      paidAmount: 0,
+      dueAmount: 0,
+      status: "PENDING",
+      paymentCount: 0,
+      payments: [],
     };
-
-    const totalRecords = await FeeRecord.countDocuments(baseQuery);
-
-    const feeRecords = await FeeRecord.find(baseQuery)
-      .populate("user", "_id name email")
-      .populate("class", "_id name grade section")
-      .populate("school", "_id schoolName")
-      .sort({ year: -1, month: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const totalPages = Math.ceil(totalRecords / limit) || 1;
-
-    return res
-      .status(200)
-      .json(
-        formatResponse(true, "Student fee records fetched successfully", {
-          records: feeRecords,
-          pagination: {
-            page,
-            limit,
-            totalRecords,
-            totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1,
-          },
-        })
-      );
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching student fee records", null, error.message));
   }
+
+  const lockedStructure = payments[0].feeStructureId;
+  const expectedAmount = getFeeStructureTotal(lockedStructure);
+  const paidAmount = toMoney(
+    payments.reduce((acc, payment) => acc + toMoney(payment.amount) + toMoney(payment.lateFee || 0), 0)
+  );
+  const dueAmount = toMoney(Math.max(0, expectedAmount - paidAmount));
+
+  return {
+    month,
+    year,
+    studentId,
+    structureLocked: true,
+    feeStructureId: lockedStructure?._id || null,
+    expectedAmount,
+    paidAmount,
+    dueAmount,
+    status: deriveStatus({ paymentCount: payments.length, expectedAmount, paidAmount }),
+    paymentCount: payments.length,
+    payments,
+  };
 };
-
-// ==================== ADMIN ANALYTICS ====================
-
-const getClassWiseFeeMatrix = async (req, res) => {
-  try {
-    const { classId, month, year } = req.query;
-
-    if (!classId || !month || !year) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "classId, month and year are required"));
-    }
-
-    const cls = await Class.findById(classId).select("_id school");
-    if (!cls) {
-      return res.status(404).json(formatResponse(false, "Class not found"));
-    }
-
-    if (cls.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Class not in your school"));
-    }
-
-    const feeRecords = await FeeRecord.find({
-      class: classId,
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-    })
-      .populate("user", "_id name email")
-      .select("user status totalFee paidAmount dueAmount");
-
-    const summary = {
-      class: classId,
-      month: parseInt(month),
-      year: parseInt(year),
-      totalRecords: feeRecords.length,
-      totalFeeCollection: 0,
-      totalDue: 0,
-      paidCount: 0,
-      partialCount: 0,
-      pendingCount: 0,
-      records: [],
-    };
-
-    feeRecords.forEach((record) => {
-      summary.totalFeeCollection += record.paidAmount;
-      summary.totalDue += record.dueAmount;
-
-      if (record.status === "PAID") summary.paidCount++;
-      else if (record.status === "PARTIAL") summary.partialCount++;
-      else if (record.status === "PENDING") summary.pendingCount++;
-
-      summary.records.push({
-        studentId: record.user._id,
-        studentName: record.user.name,
-        status: record.status,
-        totalFee: record.totalFee,
-        paidAmount: record.paidAmount,
-        dueAmount: record.dueAmount,
-      });
-    });
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Class fee matrix fetched successfully", summary));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching class fee matrix", null, error.message));
-  }
-};
-
-const getSchoolWiseFeeMatrix = async (req, res) => {
-  try {
-    const { month, year } = req.query;
-
-    if (!month || !year) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "month and year are required"));
-    }
-
-    const feeRecords = await FeeRecord.find({
-      school: req.user.school._id,
-      month: parseInt(month),
-      year: parseInt(year),
-    })
-      .populate("class", "_id name")
-      .select("class status totalFee paidAmount dueAmount");
-
-    const classMap = {};
-    let totalFeeCollection = 0;
-    let totalDue = 0;
-
-    feeRecords.forEach((record) => {
-      const className = record.class?.name || "Unknown";
-      if (!classMap[className]) {
-        classMap[className] = {
-          className,
-          totalRecords: 0,
-          totalFeeCollection: 0,
-          totalDue: 0,
-          paidCount: 0,
-          partialCount: 0,
-          pendingCount: 0,
-        };
-      }
-
-      classMap[className].totalRecords++;
-      classMap[className].totalFeeCollection += record.paidAmount;
-      classMap[className].totalDue += record.dueAmount;
-
-      if (record.status === "PAID") classMap[className].paidCount++;
-      else if (record.status === "PARTIAL") classMap[className].partialCount++;
-      else if (record.status === "PENDING") classMap[className].pendingCount++;
-
-      totalFeeCollection += record.paidAmount;
-      totalDue += record.dueAmount;
-    });
-
-    const summary = {
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-      totalRecords: feeRecords.length,
-      totalFeeCollection,
-      totalDue,
-      classWiseBreakdown: Object.values(classMap),
-    };
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "School fee matrix fetched successfully", summary));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching school fee matrix", null, error.message));
-  }
-};
-
-const getPendingFeesByClass = async (req, res) => {
-  try {
-    const { classId, month, year } = req.query;
-
-    if (!classId) {
-      return res.status(400).json(formatResponse(false, "classId is required"));
-    }
-
-    const cls = await Class.findById(classId).select("_id school");
-    if (!cls) {
-      return res.status(404).json(formatResponse(false, "Class not found"));
-    }
-
-    if (cls.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Class not in your school"));
-    }
-
-    const query = {
-      class: classId,
-      school: req.user.school._id,
-      status: { $in: ["PENDING", "PARTIAL"] },
-    };
-
-    if (month && year) {
-      query.month = parseInt(month);
-      query.year = parseInt(year);
-    }
-
-    const pendingRecords = await FeeRecord.find(query)
-      .populate("user", "_id name email")
-      .select("user status totalFee paidAmount dueAmount month year")
-      .sort({ year: -1, month: -1 });
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Pending fees fetched successfully", pendingRecords));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching pending fees", null, error.message));
-  }
-};
-
-const getYearlyFeeMatrix = async (req, res) => {
-  try {
-    const { classId, year } = req.query;
-
-    if (!classId || !year) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "classId and year are required"));
-    }
-
-    const cls = await Class.findById(classId).select("_id school");
-    if (!cls) {
-      return res.status(404).json(formatResponse(false, "Class not found"));
-    }
-
-    if (cls.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Class not in your school"));
-    }
-
-    const records = await FeeRecord.find({
-      class: classId,
-      year: parseInt(year),
-      school: req.user.school._id,
-    })
-      .populate("user", "_id name")
-      .select("user month status totalFee paidAmount dueAmount");
-
-    const monthlyData = {};
-    let yearlyTotal = 0;
-    let yearlyCollection = 0;
-
-    records.forEach((record) => {
-      const month = record.month;
-      if (!monthlyData[month]) {
-        monthlyData[month] = {
-          month,
-          totalFee: 0,
-          collected: 0,
-          due: 0,
-          count: 0,
-        };
-      }
-      monthlyData[month].totalFee += record.totalFee;
-      monthlyData[month].collected += record.paidAmount;
-      monthlyData[month].due += record.dueAmount;
-      monthlyData[month].count++;
-
-      yearlyTotal += record.totalFee;
-      yearlyCollection += record.paidAmount;
-    });
-
-    return res.status(200).json(
-      formatResponse(true, "Yearly fee matrix fetched successfully", {
-        class: classId,
-        year: parseInt(year),
-        yearlyTotal,
-        yearlyCollection,
-        yearlyDue: yearlyTotal - yearlyCollection,
-        monthlyBreakdown: Object.values(monthlyData),
-      })
-    );
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching yearly fee matrix", null, error.message));
-  }
-};
-
-// ==================== PAYMENT MANAGEMENT ====================
 
 const createPayment = async (req, res) => {
   try {
-    const { feeRecordId, amount, lateFee = 0, method, transactionId = "", remarks = "" } = req.body;
-    const userRole = req.user?.role?.role || req.user?.role;
-    const normalizedAmount = toMoney(amount);
-    const normalizedLateFee = toMoney(lateFee);
+    const {
+      studentId,
+      feeStructureId,
+      month,
+      year,
+      amount,
+      lateFee = 0,
+      method,
+      transactionId = "",
+      remarks = "",
+    } = req.body;
 
-    if (!feeRecordId || amount === undefined || amount === null || !method) {
-      return res.status(400).json(formatResponse(false, "Missing required fields"));
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+      return res.status(400).json(formatResponse(false, "Valid studentId is required"));
     }
 
-    if (!["UPI", "CARD", "NETBANKING", "CASH"].includes(method)) {
+    if (!feeStructureId || !mongoose.Types.ObjectId.isValid(feeStructureId)) {
+      return res.status(400).json(formatResponse(false, "Valid feeStructureId is required"));
+    }
+
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
+    }
+
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
+    }
+
+    if (!method || !FEE_METHODS.includes(method)) {
       return res.status(400).json(formatResponse(false, "Invalid payment method"));
     }
 
-    const feeRecord = await FeeRecord.findById(feeRecordId).populate("user", "_id");
-    if (!feeRecord) {
-      return res.status(404).json(formatResponse(false, "Fee record not found"));
-    }
+    const normalizedAmount = toMoney(amount);
+    const normalizedLateFee = toMoney(lateFee);
 
-    // Student can only pay their own fees
-    if (userRole === "student" ) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (feeRecord.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    if(normalizedAmount <= 0){
+    if (normalizedAmount <= 0) {
       return res.status(400).json(formatResponse(false, "Payment amount must be greater than zero"));
     }
 
-    if(normalizedLateFee < 0){
+    if (normalizedLateFee < 0) {
       return res.status(400).json(formatResponse(false, "lateFee cannot be negative"));
     }
 
-    if(toMoney(normalizedAmount + normalizedLateFee) > toMoney(feeRecord.dueAmount)){
-      return res.status(400).json(formatResponse(false, "Total payment (amount + lateFee) cannot be greater than due amount"));
+    const studentContext = await getStudentContext(req.user.school._id, studentId);
+    if (studentContext.error) {
+      return res
+        .status(studentContext.error.code)
+        .json(formatResponse(false, studentContext.error.message));
     }
 
-    let feeStatus = "PENDING";
-    if (toMoney(normalizedAmount + normalizedLateFee) === toMoney(feeRecord.dueAmount)) {
-      feeStatus = "PAID";
-    } else if (toMoney(feeRecord.dueAmount - (normalizedAmount + normalizedLateFee)) > 0) {
-      feeStatus = "PARTIAL";
+    const feeStructure = await FeeStructure.findById(feeStructureId).populate(
+      "class",
+      "_id school name grade section"
+    );
+
+    if (!feeStructure || !feeStructure.class) {
+      return res.status(404).json(formatResponse(false, "Fee structure not found"));
     }
 
-    const payment = await Payment.create({
-      user: feeRecord.user._id,
+    if (feeStructure.school.toString() !== req.user.school._id.toString()) {
+      return res.status(403).json(formatResponse(false, "Fee structure not in your school"));
+    }
+
+    if (feeStructure.class._id.toString() !== studentContext.student.class._id.toString()) {
+      return res
+        .status(400)
+        .json(formatResponse(false, "Fee structure class does not match student's class"));
+    }
+
+    const periodPayments = await getPeriodPayments({
+      schoolId: req.user.school._id,
+      studentId,
+      month: parsedMonth,
+      year: parsedYear,
+    });
+
+    if (
+      periodPayments.length > 0 &&
+      periodPayments[0].feeStructureId &&
+      periodPayments[0].feeStructureId._id.toString() !== feeStructureId
+    ) {
+      return res.status(409).json(
+        formatResponse(
+          false,
+          "Fee structure is already locked for this student and month. Use the same structure for additional payments."
+        )
+      );
+    }
+
+    const expectedAmount = getFeeStructureTotal(feeStructure);
+    const alreadyPaid = toMoney(
+      periodPayments.reduce((acc, payment) => acc + toMoney(payment.amount) + toMoney(payment.lateFee || 0), 0)
+    );
+    const incomingTotal = toMoney(normalizedAmount + normalizedLateFee);
+
+    if (toMoney(alreadyPaid + incomingTotal) > expectedAmount) {
+      return res
+        .status(400)
+        .json(formatResponse(false, "Payment exceeds expected amount for the selected fee structure"));
+    }
+
+    const created = await Payment.create({
+      user: studentId,
       school: req.user.school._id,
-      feeRecordId,
+      class: studentContext.student.class._id,
+      feeStructureId,
+      month: parsedMonth,
+      year: parsedYear,
       amount: normalizedAmount,
       lateFee: normalizedLateFee,
       method,
@@ -714,101 +236,148 @@ const createPayment = async (req, res) => {
       updatedBy: req.user._id,
     });
 
-    // Update fee record
-    const newPaidAmount = toMoney(feeRecord.paidAmount + normalizedAmount + normalizedLateFee);
-    const newDueAmount = toMoney(Math.max(0, feeRecord.dueAmount - normalizedAmount - normalizedLateFee));
-
-    let newStatus = "PENDING";
-    if (newDueAmount === 0) {
-      newStatus = "PAID";
-    } else if (newPaidAmount > 0) {
-      newStatus = "PARTIAL";
-    }
-
-    feeRecord.paidAmount = newPaidAmount;
-    feeRecord.dueAmount = newDueAmount;
-    feeRecord.status = newStatus;
-    feeRecord.history.push({
-      amount: normalizedAmount,
-      lateFee: normalizedLateFee,
-      method,
-      transactionId,
-      paymentId: payment._id,
-      date: new Date(),
-    });
-    feeRecord.updatedBy = req.user._id;
-    await feeRecord.save();
-
-    const populated = await Payment.findById(payment._id)
+    const populated = await Payment.findById(created._id)
       .populate("user", "_id name email")
-      .populate("feeRecordId", "_id month year totalFee");
+      .populate("class", "_id name grade section")
+      .populate("feeStructureId", "_id class components");
 
-    return res
-      .status(201)
-      .json(formatResponse(true, "Payment recorded successfully", populated));
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      studentId,
+      month: parsedMonth,
+      year: parsedYear,
+    });
+
+    return res.status(201).json(
+      formatResponse(true, "Payment recorded successfully", {
+        payment: populated,
+        monthSummary: summary,
+      })
+    );
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error recording payment", null, error.message));
+      .json(formatResponse(false, "Error recording fee payment", null, error.message));
   }
 };
 
-const getPaymentsByFeeRecord = async (req, res) => {
+const getPaymentById = async (req, res) => {
   try {
-    const { feeRecordId } = req.params;
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
-    const skip = (page - 1) * limit;
-    const userRole = req.user?.role?.role || req.user?.role;
+    const { id } = req.params;
 
-    if (!feeRecordId || !mongoose.Types.ObjectId.isValid(feeRecordId)) {
-      return res.status(400).json(formatResponse(false, "Valid feeRecordId is required"));
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json(formatResponse(false, "Valid payment id is required"));
     }
 
-    const feeRecord = await FeeRecord.findById(feeRecordId).populate("user", "_id");
-    if (!feeRecord) {
-      return res.status(404).json(formatResponse(false, "Fee record not found"));
+    const payment = await Payment.findById(id)
+      .populate("user", "_id name email")
+      .populate("class", "_id name grade section school")
+      .populate("feeStructureId", "_id class components")
+      .populate("createdBy", "_id name email")
+      .populate("updatedBy", "_id name email");
+
+    if (!payment) {
+      return res.status(404).json(formatResponse(false, "Payment not found"));
     }
 
-    // Student can only see own payments
-    if (userRole === "student" && feeRecord.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (feeRecord.school.toString() !== req.user.school._id.toString()) {
+    if (payment.school.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
-    const paymentQuery = { feeRecordId };
-    const totalRecords = await Payment.countDocuments(paymentQuery);
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      studentId: payment.user._id,
+      month: payment.month,
+      year: payment.year,
+    });
 
-    const payments = await Payment.find(paymentQuery)
-      .populate("user", "_id name email")
-      .sort({ paidAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const totalPages = Math.ceil(totalRecords / limit) || 1;
-
-    return res
-      .status(200)
-      .json(
-        formatResponse(true, "Payments fetched successfully", {
-          records: payments,
-          pagination: {
-            page,
-            limit,
-            totalRecords,
-            totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1,
-          },
-        })
-      );
+    return res.status(200).json(
+      formatResponse(true, "Payment fetched successfully", {
+        payment,
+        monthSummary: summary,
+      })
+    );
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error fetching payments", null, error.message));
+      .json(formatResponse(false, "Error fetching payment", null, error.message));
+  }
+};
+
+const deletePayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json(formatResponse(false, "Valid payment id is required"));
+    }
+
+    const payment = await Payment.findById(id).select("_id school user month year");
+    if (!payment) {
+      return res.status(404).json(formatResponse(false, "Payment not found"));
+    }
+
+    if (payment.school.toString() !== req.user.school._id.toString()) {
+      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+    }
+
+    await payment.deleteOne();
+
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      studentId: payment.user,
+      month: payment.month,
+      year: payment.year,
+    });
+
+    return res.status(200).json(
+      formatResponse(true, "Payment deleted successfully", {
+        monthSummary: summary,
+      })
+    );
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error deleting payment", null, error.message));
+  }
+};
+
+const getStudentFeeByMonthYear = async (req, res) => {
+  try {
+    const { studentId, month, year } = req.params;
+
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+      return res.status(400).json(formatResponse(false, "Valid studentId is required"));
+    }
+
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
+    }
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
+    }
+
+    const studentContext = await getStudentContext(req.user.school._id, studentId);
+    if (studentContext.error) {
+      return res
+        .status(studentContext.error.code)
+        .json(formatResponse(false, studentContext.error.message));
+    }
+
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      studentId,
+      month: parsedMonth,
+      year: parsedYear,
+    });
+
+    return res.status(200).json(formatResponse(true, "Fee summary fetched successfully", summary));
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching fee summary", null, error.message));
   }
 };
 
@@ -818,59 +387,49 @@ const getStudentPaymentHistory = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
-    const userRole = req.user?.role?.role || req.user?.role;
 
-    if (!studentId) {
-      return res.status(400).json(formatResponse(false, "studentId is required"));
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+      return res.status(400).json(formatResponse(false, "Valid studentId is required"));
     }
 
-    const student = await Student.findOne({ user: studentId }).populate(
-      "user",
-      "_id school name email"
-    );
-    if (!student) {
-      return res.status(404).json(formatResponse(false, "Student not found"));
-    }
-
-    // Student can only see own payments
-    if (userRole === "student" && student.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (student.user.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+    const studentContext = await getStudentContext(req.user.school._id, studentId);
+    if (studentContext.error) {
+      return res
+        .status(studentContext.error.code)
+        .json(formatResponse(false, studentContext.error.message));
     }
 
     const paymentQuery = {
-      user: studentId,
       school: req.user.school._id,
+      user: studentId,
     };
 
     const totalRecords = await Payment.countDocuments(paymentQuery);
 
     const payments = await Payment.find(paymentQuery)
-      .populate("feeRecordId", "_id month year totalFee")
-      .sort({ paidAt: -1 })
+      .populate("class", "_id name grade section")
+      .populate("feeStructureId", "_id class components")
+      .sort({ year: -1, month: -1, paidAt: -1 })
       .skip(skip)
       .limit(limit);
 
     const totalPages = Math.ceil(totalRecords / limit) || 1;
 
-    return res
-      .status(200)
-      .json(
-        formatResponse(true, "Payment history fetched successfully", {
-          records: payments,
-          pagination: {
-            page,
-            limit,
-            totalRecords,
-            totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1,
-          },
-        })
-      );
+    return res.status(200).json(
+      formatResponse(true, "Payment history fetched successfully", {
+        studentId,
+        totalPayments: totalRecords,
+        records: payments,
+        pagination: {
+          page,
+          limit,
+          totalRecords,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      })
+    );
   } catch (error) {
     return res
       .status(500)
@@ -878,111 +437,26 @@ const getStudentPaymentHistory = async (req, res) => {
   }
 };
 
-// ==================== ALERT CREATION FOR UNPAID FEES ====================
-
-const createAlertForStudentUnpaidFees = async (req, res) => {
+const getClassWiseFeeMatrix = async (req, res) => {
   try {
-    const { studentId, month, year } = req.body;
+    const { classId, month, year } = req.query;
 
-    if (!studentId || !month || !year) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "studentId, month, and year are required"));
+    if (!classId || !mongoose.Types.ObjectId.isValid(classId)) {
+      return res.status(400).json(formatResponse(false, "Valid classId is required"));
     }
 
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
     }
 
-    const student = await Student.findOne({ user: studentId }).populate(
-      "user",
-      "_id school name email"
-    );
-    if (!student) {
-      return res.status(404).json(formatResponse(false, "Student not found"));
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
     }
 
-    if (student.user.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Student not in your school"));
-    }
-
-    const feeRecord = await FeeRecord.findOne({
-      user: studentId,
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-      status: { $in: ["PENDING", "PARTIAL"] },
-    }).populate("user", "_id name email");
-
-    if (!feeRecord) {
-      return res
-        .status(404)
-        .json(formatResponse(false, "No unpaid fee record found for this student, month and year"));
-    }
-
-    // Check if due date has passed
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (!feeRecord.dueDate || new Date(feeRecord.dueDate) >= today) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "Due date has not passed yet. No alert needed"));
-    }
-
-    // Check if alert already exists for this fee record
-    const existingAlert = await Alert.findOne({
-      school: req.user.school._id,
-      createdFor: studentId,
-      title: { $regex: `Fee Due Reminder.*${month}.*${year}` },
-    }).select("_id");
-
-    if (existingAlert) {
-      return res.status(409).json(formatResponse(false, "Alert already created for this student"));
-    }
-
-    const alert = await Alert.create({
-      school: req.user.school._id,
-      createdFor: studentId,
-      createdBy: req.user._id,
-      title: `Fee Due Reminder - ${new Date(feeRecord.dueDate).toLocaleDateString()}`,
-      message: `Your fee payment for ${feeRecord.month}/${feeRecord.year} was due on ${new Date(
-        feeRecord.dueDate
-      ).toLocaleDateString()}. Outstanding amount: Rs. ${feeRecord.dueAmount}. Please pay immediately.`,
-      viewed: false,
-      viewedAt: null,
-    });
-
-    const populated = await Alert.findById(alert._id)
-      .populate("createdFor", "_id name email")
-      .populate("createdBy", "_id name email")
-      .populate("school", "_id schoolName");
-
-    return res
-      .status(201)
-      .json(formatResponse(true, "Alert created successfully for student", populated));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error creating alert", null, error.message));
-  }
-};
-
-const createAlertForClassUnpaidFees = async (req, res) => {
-  try {
-    const { classId, month, year } = req.body;
-
-    if (!classId || !month || !year) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "classId, month, and year are required"));
-    }
-
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
-    }
-
-    const cls = await Class.findById(classId).select("_id school");
+    const cls = await Class.findById(classId).select("_id school name grade section");
     if (!cls) {
       return res.status(404).json(formatResponse(false, "Class not found"));
     }
@@ -991,410 +465,165 @@ const createAlertForClassUnpaidFees = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Class not in your school"));
     }
 
-    // Find all unpaid fees for the class in the given month and year
-    const unpaidFees = await FeeRecord.find({
+    const students = await Student.find({ class: classId })
+      .populate("user", "_id name email school")
+      .select("_id user");
+
+    const payments = await Payment.find({
+      school: req.user.school._id,
       class: classId,
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-      status: { $in: ["PENDING", "PARTIAL"] },
-      dueDate: { $lt: new Date() },
-    }).populate("user", "_id name email");
+      month: parsedMonth,
+      year: parsedYear,
+    })
+      .populate("feeStructureId", "_id components")
+      .sort({ paidAt: -1 });
 
-    if (unpaidFees.length === 0) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "No overdue unpaid fees found in this class"));
+    const grouped = new Map();
+    for (const payment of payments) {
+      const key = payment.user.toString();
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(payment);
     }
 
-    const alerts = [];
+    const records = students
+      .filter((student) => student.user && student.user.school.toString() === req.user.school._id.toString())
+      .map((student) => {
+        const studentPayments = grouped.get(student.user._id.toString()) || [];
 
-    for (const feeRecord of unpaidFees) {
-      // Check if alert already exists
-      const existingAlert = await Alert.findOne({
-        school: req.user.school._id,
-        createdFor: feeRecord.user._id,
-        title: { $regex: `Fee Due Reminder.*${month}.*${year}` },
-      }).select("_id");
-
-      if (!existingAlert) {
-        const alert = await Alert.create({
-          school: req.user.school._id,
-          createdFor: feeRecord.user._id,
-          createdBy: req.user._id,
-          title: `Fee Due Reminder - ${new Date(feeRecord.dueDate).toLocaleDateString()}`,
-          message: `Your fee payment for ${feeRecord.month}/${feeRecord.year} was due on ${
-            new Date(feeRecord.dueDate).toLocaleDateString()
-          }. Outstanding amount: Rs. ${feeRecord.dueAmount}. Please pay immediately.`,
-          viewed: false,
-          viewedAt: null,
-        });
-        alerts.push(alert._id);
-      }
-    }
-
-    return res.status(201).json(
-      formatResponse(
-        true,
-        `Alerts created for ${alerts.length} students with overdue fees`,
-        {
-          totalStudents: unpaidFees.length,
-          alertsCreated: alerts.length,
-          alertIds: alerts,
-        }
-      )
-    );
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error creating alerts", null, error.message));
-  }
-};
-
-const createAlertForSchoolUnpaidFees = async (req, res) => {
-  try {
-    const { month, year } = req.body;
-
-    if (!month || !year) {
-      return res.status(400).json(formatResponse(false, "month and year are required"));
-    }
-
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
-    }
-
-    // Find all unpaid fees for the school in the given month and year
-    const unpaidFees = await FeeRecord.find({
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-      status: { $in: ["PENDING", "PARTIAL"] },
-      dueDate: { $lt: new Date() },
-    }).populate("user", "_id name email");
-
-    if (unpaidFees.length === 0) {
-      return res
-        .status(400)
-        .json(formatResponse(false, "No overdue unpaid fees found in the school"));
-    }
-
-    const alerts = [];
-
-    for (const feeRecord of unpaidFees) {
-      // Check if alert already exists
-      const existingAlert = await Alert.findOne({
-        school: req.user.school._id,
-        createdFor: feeRecord.user._id,
-        title: { $regex: `Fee Due Reminder.*${month}.*${year}` },
-      }).select("_id");
-
-      if (!existingAlert) {
-        const alert = await Alert.create({
-          school: req.user.school._id,
-          createdFor: feeRecord.user._id,
-          createdBy: req.user._id,
-          title: `Fee Due Reminder - ${new Date(feeRecord.dueDate).toLocaleDateString()}`,
-          message: `Your fee payment for ${feeRecord.month}/${feeRecord.year} was due on ${
-            new Date(feeRecord.dueDate).toLocaleDateString()
-          }. Outstanding amount: Rs. ${feeRecord.dueAmount}. Please pay immediately.`,
-          viewed: false,
-          viewedAt: null,
-        });
-        alerts.push(alert._id);
-      }
-    }
-
-    return res.status(201).json(
-      formatResponse(
-        true,
-        `Alerts created for ${alerts.length} students with overdue fees`,
-        {
-          totalStudents: unpaidFees.length,
-          alertsCreated: alerts.length,
-          alertIds: alerts,
-        }
-      )
-    );
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error creating alerts", null, error.message));
-  }
-};
-
-// ==================== BULK FEE RECORD CREATION ====================
-
-const createFeeRecordForClassStudents = async (req, res) => {
-  try {
-    const {
-      classId,
-      month,
-      year,
-      totalFee,
-      dueAmount,
-      discount = 0,
-      fine = 0,
-      dueDate,
-      notes = "",
-    } = req.body;
-
-    const normalizedTotalFee = toMoney(totalFee);
-    const normalizedDueAmount = toMoney(dueAmount);
-    const normalizedDiscount = toMoney(discount);
-    const normalizedFine = toMoney(fine);
-
-    if (!classId || !month || !year || !totalFee || dueAmount === undefined) {
-      return res.status(400).json(formatResponse(false, "classId, month, year, totalFee, and dueAmount are required"));
-    }
-
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
-    }
-    if(normalizedTotalFee < 0 || normalizedDueAmount < 0 || normalizedDiscount < 0 || normalizedFine < 0) {
-      return res.status(400).json(formatResponse(false, "totalFee, dueAmount, discount and fine must be non-negative"));
-    }
-    if(totalFee !== undefined && dueAmount !== undefined && normalizedDueAmount > normalizedTotalFee) {
-      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
-    }
-
-    let status = "PENDING";
-    if (normalizedDueAmount <= 0) {
-      status = "PAID";
-    } else if (normalizedDueAmount > 0 && normalizedDueAmount < normalizedTotalFee) {
-      status = "PARTIAL";
-    }
-
-
-    const cls = await Class.findById(classId).select("_id school");
-    if (!cls) {
-      return res.status(404).json(formatResponse(false, "Class not found"));
-    }
-
-    if (cls.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Class not in your school"));
-    }
-
-    // Get all students in the class
-    const students = await Student.find({ class: classId }).populate(
-      "user",
-      "_id school"
-    );
-
-    if (students.length === 0) {
-      return res.status(400).json(formatResponse(false, "No students found in this class"));
-    }
-
-    const created = [];
-    const skipped = [];
-    const errors = [];
-
-    for (const student of students) {
-      try {
-        // Check if record already exists
-        const existing = await FeeRecord.findOne({
-          user: student.user._id,
-          month: parseInt(month),
-          year: parseInt(year),
-          school: req.user.school._id,
-        }).select("_id");
-
-        if (existing) {
-          skipped.push({
+        if (studentPayments.length === 0) {
+          return {
             studentId: student.user._id,
-            reason: "Record already exists",
-          });
-          continue;
+            studentName: student.user.name,
+            status: "PENDING",
+            expectedAmount: 0,
+            paidAmount: 0,
+            dueAmount: 0,
+            feeStructureId: null,
+            paymentCount: 0,
+          };
         }
 
-        // Create fee record
-        const feeRecord = await FeeRecord.create({
-          user: student.user._id,
-          school: req.user.school._id,
-          class: classId,
-          month: parseInt(month),
-          year: parseInt(year),
-          totalFee: normalizedTotalFee,
-          dueAmount: normalizedDueAmount,
-          discount: normalizedDiscount,
-          fine: normalizedFine,
-          dueDate: dueDate ? new Date(dueDate) : null,
-          notes,
-          status: status,
-          paidAmount: toMoney(normalizedTotalFee - normalizedDueAmount),
-          createdBy: req.user._id,
-          updatedBy: req.user._id,
-        });
+        const lockedStructure = studentPayments[0].feeStructureId;
+        const expectedAmount = getFeeStructureTotal(lockedStructure);
+        const paidAmount = toMoney(
+          studentPayments.reduce(
+            (acc, payment) => acc + toMoney(payment.amount) + toMoney(payment.lateFee || 0),
+            0
+          )
+        );
 
-        created.push(feeRecord._id);
-      } catch (err) {
-        errors.push({
+        return {
           studentId: student.user._id,
-          error: err.message,
-        });
-      }
-    }
+          studentName: student.user.name,
+          status: deriveStatus({
+            paymentCount: studentPayments.length,
+            expectedAmount,
+            paidAmount,
+          }),
+          expectedAmount,
+          paidAmount,
+          dueAmount: toMoney(Math.max(0, expectedAmount - paidAmount)),
+          feeStructureId: lockedStructure?._id || null,
+          paymentCount: studentPayments.length,
+        };
+      });
 
-    return res.status(201).json(
-      formatResponse(true, "Bulk fee records creation completed", {
-        totalStudents: students.length,
-        created: created.length,
-        skipped: skipped.length,
-        errors: errors.length,
-        createdIds: created,
-        skippedDetails: skipped.length > 0 ? skipped : undefined,
-        errorDetails: errors.length > 0 ? errors : undefined,
-      })
-    );
+    const summary = {
+      classId: cls._id,
+      className: cls.name,
+      month: parsedMonth,
+      year: parsedYear,
+      totalStudents: records.length,
+      paidCount: records.filter((item) => item.status === "PAID").length,
+      partialCount: records.filter((item) => item.status === "PARTIAL").length,
+      pendingCount: records.filter((item) => item.status === "PENDING").length,
+      expectedAmount: toMoney(records.reduce((acc, item) => acc + item.expectedAmount, 0)),
+      paidAmount: toMoney(records.reduce((acc, item) => acc + item.paidAmount, 0)),
+      dueAmount: toMoney(records.reduce((acc, item) => acc + item.dueAmount, 0)),
+      records,
+    };
+
+    return res
+      .status(200)
+      .json(formatResponse(true, "Class fee summary fetched successfully", summary));
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error creating bulk fee records", null, error.message));
+      .json(formatResponse(false, "Error fetching class fee summary", null, error.message));
   }
 };
 
-const createFeeRecordForSchoolStudents = async (req, res) => {
+const getSchoolWiseFeeMatrix = async (req, res) => {
   try {
-    const {
-      month,
-      year,
-      totalFee,
-      dueAmount,
-      discount = 0,
-      fine = 0,
-      dueDate,
-      notes = "",
-    } = req.body;
+    const { month, year } = req.query;
 
-    const normalizedTotalFee = toMoney(totalFee);
-    const normalizedDueAmount = toMoney(dueAmount);
-    const normalizedDiscount = toMoney(discount);
-    const normalizedFine = toMoney(fine);
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
 
-    if (!month || !year || !totalFee || dueAmount === undefined) {
-      return res.status(400).json(formatResponse(false, "month, year, totalFee, and dueAmount are required"));
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
     }
 
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
     }
 
-    if(normalizedTotalFee < 0 || normalizedDueAmount < 0 || normalizedDiscount < 0 || normalizedFine < 0) {
-      return res.status(400).json(formatResponse(false, "totalFee, dueAmount, discount and fine must be non-negative"));
-    }
-    if(totalFee !== undefined && dueAmount !== undefined && normalizedDueAmount > normalizedTotalFee) {
-      return res.status(400).json(formatResponse(false, "dueAmount cannot be greater than totalFee"));
-    }
-    let status = "PENDING";
-    if (normalizedDueAmount <= 0) {
-      status = "PAID";
-    } else if (normalizedDueAmount > 0 && normalizedDueAmount < normalizedTotalFee) {
-      status = "PARTIAL";
-    }
+    const classes = await Class.find({ school: req.user.school._id }).select("_id name grade section");
 
-    // Get all students in the school
-    const students = await Student.find().populate({
-      path: "user",
-      select: "_id school",
-      match: { school: req.user.school._id },
-    });
+    const classSummaries = [];
+    for (const cls of classes) {
+      const fakeReq = {
+        query: { classId: cls._id.toString(), month: parsedMonth, year: parsedYear },
+        user: req.user,
+      };
 
-    // Filter out students where user population failed (not in this school)
-    const schoolStudents = students.filter((s) => s.user !== null);
+      const capture = {};
+      const fakeRes = {
+        status(code) {
+          capture.code = code;
+          return this;
+        },
+        json(payload) {
+          capture.payload = payload;
+          return this;
+        },
+      };
 
-    if (schoolStudents.length === 0) {
-      return res.status(400).json(formatResponse(false, "No students found in this school"));
-    }
-
-    const created = [];
-    const skipped = [];
-    const errors = [];
-
-    for (const student of schoolStudents) {
-      try {
-        // Check if record already exists
-        const existing = await FeeRecord.findOne({
-          user: student.user._id,
-          month: parseInt(month),
-          year: parseInt(year),
-          school: req.user.school._id,
-        }).select("_id");
-
-        if (existing) {
-          skipped.push({
-            studentId: student.user._id,
-            reason: "Record already exists",
-          });
-          continue;
-        }
-
-        // Create fee record
-        const feeRecord = await FeeRecord.create({
-          user: student.user._id,
-          school: req.user.school._id,
-          class: student.class,
-          month: parseInt(month),
-          year: parseInt(year),
-          totalFee: normalizedTotalFee,
-          dueAmount: normalizedDueAmount,
-          discount: normalizedDiscount,
-          fine: normalizedFine,
-          dueDate: dueDate ? new Date(dueDate) : null,
-          notes,
-          status,
-          paidAmount: toMoney(normalizedTotalFee - normalizedDueAmount),
-          createdBy: req.user._id,
-          updatedBy: req.user._id,
-        });
-
-        created.push(feeRecord._id);
-      } catch (err) {
-        errors.push({
-          studentId: student.user._id,
-          error: err.message,
-        });
+      await getClassWiseFeeMatrix(fakeReq, fakeRes);
+      if (capture.code === 200 && capture.payload?.data) {
+        classSummaries.push(capture.payload.data);
       }
     }
 
-    return res.status(201).json(
-      formatResponse(true, "Bulk fee records creation completed for school", {
-        totalStudents: schoolStudents.length,
-        created: created.length,
-        skipped: skipped.length,
-        errors: errors.length,
-        createdIds: created,
-        skippedDetails: skipped.length > 0 ? skipped : undefined,
-        errorDetails: errors.length > 0 ? errors : undefined,
-      })
-    );
+    const summary = {
+      month: parsedMonth,
+      year: parsedYear,
+      totalClasses: classSummaries.length,
+      expectedAmount: toMoney(classSummaries.reduce((acc, item) => acc + item.expectedAmount, 0)),
+      paidAmount: toMoney(classSummaries.reduce((acc, item) => acc + item.paidAmount, 0)),
+      dueAmount: toMoney(classSummaries.reduce((acc, item) => acc + item.dueAmount, 0)),
+      paidCount: classSummaries.reduce((acc, item) => acc + item.paidCount, 0),
+      partialCount: classSummaries.reduce((acc, item) => acc + item.partialCount, 0),
+      pendingCount: classSummaries.reduce((acc, item) => acc + item.pendingCount, 0),
+      classWiseBreakdown: classSummaries,
+    };
+
+    return res
+      .status(200)
+      .json(formatResponse(true, "School fee summary fetched successfully", summary));
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error creating bulk fee records for school", null, error.message));
+      .json(formatResponse(false, "Error fetching school fee summary", null, error.message));
   }
 };
 
 module.exports = {
-  // Fee Records
-  createFeeRecord,
-  updateFeeRecord,
-  deleteFeeRecord,
-  getFeeRecordById,
+  createPayment,
+  getPaymentById,
+  deletePayment,
   getStudentFeeByMonthYear,
-  getStudentAllFees,
-  // Bulk Fee Records
-  createFeeRecordForClassStudents,
-  createFeeRecordForSchoolStudents,
-  // Analytics
+  getStudentPaymentHistory,
   getClassWiseFeeMatrix,
   getSchoolWiseFeeMatrix,
-  getPendingFeesByClass,
-  getYearlyFeeMatrix,
-  // Payments
-  createPayment,
-  getPaymentsByFeeRecord,
-  getStudentPaymentHistory,
-  // Alerts
-  createAlertForStudentUnpaidFees,
-  createAlertForClassUnpaidFees,
-  createAlertForSchoolUnpaidFees,
 };

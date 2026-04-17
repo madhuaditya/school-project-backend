@@ -219,6 +219,43 @@ const getClasses = async (req, res) => {
   }
 };
 
+// ================= GET STUDENTS BY CLASS ID =================
+const getClassStudents = async (req, res) => {
+  try {
+    const { classId } = req.params;
+
+    const cls = await Class.findById(classId).select('_id school').lean();
+    if (!cls) return res.status(404).json(formatResponse(false, 'Class not found'));
+
+    if (cls.school.toString() !== req.user.school._id.toString()) {
+      return res.status(403).json(formatResponse(false, 'Class not in your school'));
+    }
+
+    const students = await Student.find({ class: classId })
+      .populate({
+        path: 'user',
+        select: '_id name email phone',
+      })
+      .lean();
+
+    const normalized = students.map((student) => ({
+      _id: student._id,
+      studentId: student.studentId,
+      rollNumber: student.rollNumber,
+      fatherName: student.fatherName,
+      class: student.class,
+      user: student.user,
+      name: student?.user?.name || '',
+      email: student?.user?.email || '',
+      phone: student?.user?.phone || '',
+    }));
+
+    return res.status(200).json(formatResponse(true, 'Class students fetched successfully', normalized));
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error fetching class students', null, e.message));
+  }
+};
+
 
 module.exports = {
   createClass,
@@ -226,5 +263,6 @@ module.exports = {
   assignStudent,
   removeStudent,
   getClassById,
-  getClasses
+  getClasses,
+  getClassStudents
 };

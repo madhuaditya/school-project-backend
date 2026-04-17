@@ -10,11 +10,12 @@ const {
 } = require("../controllers/attendanceCtrl");
 const { validateUser } = require("../middleware/auth");
 const { allow } = require("../middleware/role");
+const { checkSubscriptionActive } = require("../middleware/subscriptionCheck");
 
 const router = express.Router();
 
 // All routes require authentication
-router.use(validateUser);
+router.use(validateUser, checkSubscriptionActive);
 
 // ==================== MARK & MANAGE ATTENDANCE ====================
 // Admin: can mark for any student/staff/teacher

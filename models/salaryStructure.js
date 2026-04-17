@@ -40,6 +40,6 @@ const salaryStructureSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-salaryStructureSchema.index({ school: 1, role: 1 }, { unique: true });
+salaryStructureSchema.index({ school: 1, role: 1, createdAt: -1 });
 
 module.exports = mongoose.model("SalaryStructure", salaryStructureSchema);

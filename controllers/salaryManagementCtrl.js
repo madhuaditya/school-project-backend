@@ -1,23 +1,16 @@
 const mongoose = require("mongoose");
-const SalaryRecord = require("../models/salaryRecord");
 const SalaryPayment = require("../models/salaryPayment");
+const SalaryStructure = require("../models/salaryStructure");
 const User = require("../models/user");
 
-const formatResponse = (success, msg, data = null, error = null) => {
-  return {
-    success,
-    msg,
-    ...(data && { data }),
-    ...(error && { error }),
-  };
-};
+const SALARY_METHODS = ["BANK", "UPI", "CASH"];
 
-const SALARY_ELIGIBLE_ROLES = ["admin", "teacher", "staff"];
-
-const isSalaryEligibleUser = (userDoc) => {
-  const roleName = userDoc?.role?.role;
-  return !!roleName && SALARY_ELIGIBLE_ROLES.includes(roleName);
-};
+const formatResponse = (success, msg, data = null, error = null) => ({
+  success,
+  msg,
+  ...(data && { data }),
+  ...(error && { error }),
+});
 
 const toMoney = (value) => {
   const num = Number(value);
@@ -25,695 +18,350 @@ const toMoney = (value) => {
   return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
-// ==================== SALARY RECORD MANAGEMENT ====================
+const mapUserRoleToSalaryRole = (role) => {
+  const normalized = (role || "").toString().trim().toLowerCase();
+  if (normalized === "teacher") return "TEACHER";
+  if (normalized === "accountant") return "ACCOUNTANT";
+  if (normalized === "driver") return "DRIVER";
+  if (normalized === "admin") return "ADMIN";
+  return "OTHER";
+};
 
-const createSalaryRecord = async (req, res) => {
+const getSalaryStructureNet = (structure) => {
+  const earnings = toMoney(
+    Object.values(structure?.components || {}).reduce((acc, value) => acc + toMoney(value || 0), 0)
+  );
+  const deductions = toMoney(
+    Object.values(structure?.deductions || {}).reduce((acc, value) => acc + toMoney(value || 0), 0)
+  );
+  return toMoney(Math.max(0, earnings - deductions));
+};
+
+const deriveStatus = ({ paymentCount, expectedAmount, paidAmount }) => {
+  if (paymentCount === 0) return "PENDING";
+  if (toMoney(paidAmount) >= toMoney(expectedAmount)) return "PAID";
+  return "PARTIAL";
+};
+
+const getStaffContext = async (schoolId, staffId) => {
+  const user = await User.findById(staffId).populate("role", "role").populate("school", "_id schoolName");
+
+  if (!user) {
+    return { error: { code: 404, message: "Staff user not found" } };
+  }
+
+  if (!user.school || user.school._id.toString() !== schoolId.toString()) {
+    return { error: { code: 403, message: "Unauthorized school access" } };
+  }
+
+  const roleName = user?.role?.role;
+  const salaryRole = mapUserRoleToSalaryRole(roleName);
+
+  return {
+    user,
+    salaryRole,
+  };
+};
+
+const getPeriodPayments = async ({ schoolId, staffId, month, year }) => {
+  return SalaryPayment.find({
+    school: schoolId,
+    staffId,
+    month,
+    year,
+  })
+    .populate("salaryStructureId", "_id role components deductions")
+    .sort({ paidAt: -1, createdAt: -1 });
+};
+
+const buildMonthSummary = async ({ schoolId, staffId, month, year }) => {
+  const payments = await getPeriodPayments({ schoolId, staffId, month, year });
+
+  if (payments.length === 0) {
+    return {
+      month,
+      year,
+      staffId,
+      structureLocked: false,
+      salaryStructureId: null,
+      expectedAmount: 0,
+      paidAmount: 0,
+      dueAmount: 0,
+      status: "PENDING",
+      paymentCount: 0,
+      payments: [],
+    };
+  }
+
+  const lockedStructure = payments[0].salaryStructureId;
+  const expectedAmount = getSalaryStructureNet(lockedStructure);
+  const paidAmount = toMoney(payments.reduce((acc, payment) => acc + toMoney(payment.amount), 0));
+  const dueAmount = toMoney(Math.max(0, expectedAmount - paidAmount));
+
+  return {
+    month,
+    year,
+    staffId,
+    structureLocked: true,
+    salaryStructureId: lockedStructure?._id || null,
+    expectedAmount,
+    paidAmount,
+    dueAmount,
+    status: deriveStatus({ paymentCount: payments.length, expectedAmount, paidAmount }),
+    paymentCount: payments.length,
+    payments,
+  };
+};
+
+const recordSalaryPayment = async (req, res) => {
   try {
     const {
       staffId,
+      salaryStructureId,
       month,
       year,
-      baseSalary,
-      earnings = {},
-      deductions = {},
+      amount,
+      method,
+      transactionId = "",
       remarks = "",
     } = req.body;
 
-    if (!staffId || !month || !year) {
-      return res.status(400).json(formatResponse(false, "staffId, month, and year are required"));
+    if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
+      return res.status(400).json(formatResponse(false, "Valid staffId is required"));
     }
 
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
+    if (!salaryStructureId || !mongoose.Types.ObjectId.isValid(salaryStructureId)) {
+      return res.status(400).json(formatResponse(false, "Valid salaryStructureId is required"));
     }
 
-    const staff = await User.findById(staffId)
-      .populate("school", "_id")
-      .populate("role", "role")
-      .select("_id school role name email");
-    if (!staff) {
-      return res.status(404).json(formatResponse(false, "Staff not found"));
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
     }
 
-    if (!isSalaryEligibleUser(staff)) {
-      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
     }
 
-    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Staff not in your school"));
+    if (!method || !SALARY_METHODS.includes(method)) {
+      return res.status(400).json(formatResponse(false, "Invalid payment method"));
     }
 
-    const existing = await SalaryRecord.findOne({
+    const normalizedAmount = toMoney(amount);
+    if (normalizedAmount <= 0) {
+      return res.status(400).json(formatResponse(false, "Payment amount must be greater than zero"));
+    }
+
+    const staffContext = await getStaffContext(req.user.school._id, staffId);
+    if (staffContext.error) {
+      return res.status(staffContext.error.code).json(formatResponse(false, staffContext.error.message));
+    }
+
+    const salaryStructure = await SalaryStructure.findById(salaryStructureId);
+    if (!salaryStructure) {
+      return res.status(404).json(formatResponse(false, "Salary structure not found"));
+    }
+
+    if (salaryStructure.school.toString() !== req.user.school._id.toString()) {
+      return res.status(403).json(formatResponse(false, "Salary structure not in your school"));
+    }
+
+    if (salaryStructure.role !== staffContext.salaryRole) {
+      return res.status(400).json(
+        formatResponse(
+          false,
+          `Salary structure role mismatch. Staff role maps to ${staffContext.salaryRole}.`
+        )
+      );
+    }
+
+    const periodPayments = await getPeriodPayments({
+      schoolId: req.user.school._id,
       staffId,
-      month,
-      year,
-      school: req.user.school._id,
-    }).select("_id");
+      month: parsedMonth,
+      year: parsedYear,
+    });
 
-    if (existing) {
+    if (
+      periodPayments.length > 0 &&
+      periodPayments[0].salaryStructureId &&
+      periodPayments[0].salaryStructureId._id.toString() !== salaryStructureId
+    ) {
+      return res.status(409).json(
+        formatResponse(
+          false,
+          "Salary structure is already locked for this staff member and month. Use the same structure for additional payments."
+        )
+      );
+    }
+
+    const expectedAmount = getSalaryStructureNet(salaryStructure);
+    const alreadyPaid = toMoney(periodPayments.reduce((acc, payment) => acc + toMoney(payment.amount), 0));
+
+    if (toMoney(alreadyPaid + normalizedAmount) > expectedAmount) {
       return res
-        .status(409)
-        .json(formatResponse(false, "Salary record already exists for this staff, month and year"));
+        .status(400)
+        .json(formatResponse(false, "Payment exceeds expected net salary for the selected structure"));
     }
 
-    const earningsValues = {
-      basic: toMoney(earnings.basic || 0),
-      hra: toMoney(earnings.hra || 0),
-      da: toMoney(earnings.da || 0),
-      bonus: toMoney(earnings.bonus || 0),
-    };
-
-    const deductionsValues = {
-      pf: toMoney(deductions.pf || 0),
-      tax: toMoney(deductions.tax || 0),
-      other: toMoney(deductions.other || 0),
-      leaveDeduction: toMoney(deductions.leaveDeduction || 0),
-    };
-
-    const totalEarnings = toMoney(
-      earningsValues.basic +
-      earningsValues.hra +
-      earningsValues.da +
-      earningsValues.bonus
-    );
-    const totalDeductions = toMoney(
-      deductionsValues.pf +
-      deductionsValues.tax +
-      deductionsValues.other +
-      deductionsValues.leaveDeduction
-    );
-    const netSalary = toMoney(totalEarnings - totalDeductions);
-
-    const record = await SalaryRecord.create({
+    const created = await SalaryPayment.create({
       staffId,
       school: req.user.school._id,
-      user: staff._id,
-      month,
-      year,
-      baseSalary: toMoney(baseSalary || 0),
-      earnings: earningsValues,
-      deductions: deductionsValues,
-      totalEarnings,
-      totalDeductions,
-      netSalary,
+      salaryStructureId,
+      month: parsedMonth,
+      year: parsedYear,
+      amount: normalizedAmount,
+      method,
+      transactionId,
       remarks,
+      status: "SUCCESS",
+      paidAt: new Date(),
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
 
-    const populated = await SalaryRecord.findById(record._id)
-      .populate("staffId", "_id")
-      .populate("user", "_id name email")
-      .populate("school", "_id schoolName");
+    const payment = await SalaryPayment.findById(created._id)
+      .populate("staffId", "_id name email")
+      .populate("salaryStructureId", "_id role components deductions");
 
-    return res
-      .status(201)
-      .json(formatResponse(true, "Salary record created successfully", populated));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error creating salary record", null, error.message));
-  }
-};
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      staffId,
+      month: parsedMonth,
+      year: parsedYear,
+    });
 
-const updateSalaryRecord = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { baseSalary, earnings, deductions, status, remarks, paymentDate } = req.body;
-
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json(formatResponse(false, "Valid id is required"));
-    }
-
-    const record = await SalaryRecord.findById(id);
-    if (!record) {
-      return res.status(404).json(formatResponse(false, "Salary record not found"));
-    }
-
-    if (record.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    if (baseSalary !== undefined) record.baseSalary = toMoney(baseSalary);
-    if (remarks !== undefined) record.remarks = remarks;
-    if (paymentDate !== undefined) record.paymentDate = paymentDate ? new Date(paymentDate) : null;
-    if (status && ["PAID", "PARTIAL", "UNPAID"].includes(status)) record.status = status;
-
-    if (earnings && typeof earnings === "object") {
-      const newEarnings = {
-        basic: earnings.basic !== undefined ? toMoney(earnings.basic) : toMoney(record.earnings.basic),
-        hra: earnings.hra !== undefined ? toMoney(earnings.hra) : toMoney(record.earnings.hra),
-        da: earnings.da !== undefined ? toMoney(earnings.da) : toMoney(record.earnings.da),
-        bonus: earnings.bonus !== undefined ? toMoney(earnings.bonus) : toMoney(record.earnings.bonus),
-      };
-      record.earnings = newEarnings;
-    }
-
-    if (deductions && typeof deductions === "object") {
-      const newDeductions = {
-        pf: deductions.pf !== undefined ? toMoney(deductions.pf) : toMoney(record.deductions.pf),
-        tax: deductions.tax !== undefined ? toMoney(deductions.tax) : toMoney(record.deductions.tax),
-        other: deductions.other !== undefined ? toMoney(deductions.other) : toMoney(record.deductions.other),
-        leaveDeduction:
-          deductions.leaveDeduction !== undefined
-            ? toMoney(deductions.leaveDeduction)
-            : toMoney(record.deductions.leaveDeduction),
-      };
-      record.deductions = newDeductions;
-    }
-
-    const totalEarnings = toMoney(
-      record.earnings.basic +
-      record.earnings.hra +
-      record.earnings.da +
-      record.earnings.bonus
+    return res.status(201).json(
+      formatResponse(true, "Salary payment recorded successfully", {
+        payment,
+        monthSummary: summary,
+      })
     );
-    const totalDeductions = toMoney(
-      record.deductions.pf +
-      record.deductions.tax +
-      record.deductions.other +
-      record.deductions.leaveDeduction
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error recording salary payment", null, error.message));
+  }
+};
+
+const getSalaryPaymentById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json(formatResponse(false, "Valid payment id is required"));
+    }
+
+    const payment = await SalaryPayment.findById(id)
+      .populate("staffId", "_id name email")
+      .populate("salaryStructureId", "_id role components deductions")
+      .populate("createdBy", "_id name email")
+      .populate("updatedBy", "_id name email");
+
+    if (!payment) {
+      return res.status(404).json(formatResponse(false, "Payment not found"));
+    }
+
+    if (payment.school.toString() !== req.user.school._id.toString()) {
+      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+    }
+
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      staffId: payment.staffId._id,
+      month: payment.month,
+      year: payment.year,
+    });
+
+    return res.status(200).json(
+      formatResponse(true, "Salary payment fetched successfully", {
+        payment,
+        monthSummary: summary,
+      })
     );
-
-    record.totalEarnings = totalEarnings;
-    record.totalDeductions = totalDeductions;
-    record.netSalary = toMoney(totalEarnings - totalDeductions);
-    record.updatedBy = req.user._id;
-
-    await record.save();
-
-    const populated = await SalaryRecord.findById(record._id)
-      .populate("staffId", "_id")
-      .populate("user", "_id name email")
-      .populate("school", "_id schoolName");
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Salary record updated successfully", populated));
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error updating salary record", null, error.message));
+      .json(formatResponse(false, "Error fetching salary payment", null, error.message));
   }
 };
 
-const deleteSalaryRecord = async (req, res) => {
+const deleteSalaryPayment = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json(formatResponse(false, "Valid id is required"));
+      return res.status(400).json(formatResponse(false, "Valid payment id is required"));
     }
 
-    const record = await SalaryRecord.findById(id);
-    if (!record) {
-      return res.status(404).json(formatResponse(false, "Salary record not found"));
+    const payment = await SalaryPayment.findById(id).select("_id school staffId month year");
+    if (!payment) {
+      return res.status(404).json(formatResponse(false, "Payment not found"));
     }
 
-    if (record.school.toString() !== req.user.school._id.toString()) {
+    if (payment.school.toString() !== req.user.school._id.toString()) {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
-    await SalaryPayment.deleteMany({ salaryRecordId: id });
-    await record.deleteOne();
+    await payment.deleteOne();
 
-    return res
-      .status(200)
-      .json(formatResponse(true, "Salary record deleted successfully"));
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      staffId: payment.staffId,
+      month: payment.month,
+      year: payment.year,
+    });
+
+    return res.status(200).json(
+      formatResponse(true, "Salary payment deleted successfully", {
+        monthSummary: summary,
+      })
+    );
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error deleting salary record", null, error.message));
-  }
-};
-
-const getSalaryRecordById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userRole = req.user?.role?.role || req.user?.role;
-
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json(formatResponse(false, "Valid id is required"));
-    }
-
-    const record = await SalaryRecord.findById(id)
-      .populate("staffId", "_id")
-      .populate("user", "_id name email")
-      .populate("school", "_id schoolName")
-      .populate("createdBy", "_id name")
-      .populate("updatedBy", "_id name");
-
-    if (!record) {
-      return res.status(404).json(formatResponse(false, "Salary record not found"));
-    }
-
-    // Staff/Teacher can only view own records
-    if ((userRole === "staff" || userRole === "teacher") && record.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (record.school._id.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Salary record fetched successfully", record));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching salary record", null, error.message));
+      .json(formatResponse(false, "Error deleting salary payment", null, error.message));
   }
 };
 
 const getStaffSalaryByMonth = async (req, res) => {
   try {
     const { staffId, month, year } = req.params;
-    const userRole = req.user?.role?.role || req.user?.role;
 
-    if (!staffId || !month || !year) {
-      return res.status(400).json(formatResponse(false, "staffId, month and year are required"));
+    if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
+      return res.status(400).json(formatResponse(false, "Valid staffId is required"));
     }
 
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
     }
 
-    const staff = await User.findById(staffId)
-      .populate("school", "_id")
-      .populate("role", "role")
-      .select("_id school role name email");
-    if (!staff) {
-      return res.status(404).json(formatResponse(false, "Staff not found"));
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
     }
 
-    if (!isSalaryEligibleUser(staff)) {
-      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
+    const staffContext = await getStaffContext(req.user.school._id, staffId);
+    if (staffContext.error) {
+      return res.status(staffContext.error.code).json(formatResponse(false, staffContext.error.message));
     }
 
-    // Staff/Teacher can only view own records
-    if ((userRole === "staff" || userRole === "teacher") && staff._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    const record = await SalaryRecord.findOne({
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
       staffId,
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-    })
-      .populate("staffId", "_id")
-      .populate("user", "_id name email")
-      .populate("school", "_id schoolName");
-
-    if (!record) {
-      return res.status(404).json(formatResponse(false, "No salary record found for this month and year"));
-    }
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Salary record fetched successfully", record));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching salary record", null, error.message));
-  }
-};
-
-const getStaffAllSalaries = async (req, res) => {
-  try {
-    const { staffId } = req.params;
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
-    const skip = (page - 1) * limit;
-    const userRole = req.user?.role?.role || req.user?.role;
-
-    if (!staffId) {
-      return res.status(400).json(formatResponse(false, "staffId is required"));
-    }
-
-    const staff = await User.findById(staffId)
-      .populate("school", "_id")
-      .populate("role", "role")
-      .select("_id school role name email");
-    if (!staff) {
-      return res.status(404).json(formatResponse(false, "Staff not found"));
-    }
-
-    if (!isSalaryEligibleUser(staff)) {
-      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
-    }
-
-    // Staff/Teacher can only view own records
-    if ((userRole === "staff" || userRole === "teacher") && staff._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    const baseQuery = {
-      staffId,
-      school: req.user.school._id,
-    };
-
-    const totalRecords = await SalaryRecord.countDocuments(baseQuery);
-
-    const records = await SalaryRecord.find(baseQuery)
-      .populate("staffId", "_id")
-      .populate("user", "_id name email")
-      .populate("school", "_id schoolName")
-      .sort({ year: -1, month: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const totalPages = Math.ceil(totalRecords / limit) || 1;
-
-    return res
-      .status(200)
-      .json(
-        formatResponse(true, "Staff salary records fetched successfully", {
-          records,
-          pagination: {
-            page,
-            limit,
-            totalRecords,
-            totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1,
-          },
-        })
-      );
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching staff salary records", null, error.message));
-  }
-};
-
-// ==================== ADMIN ANALYTICS ====================
-
-const getSalaryMatrixByMonth = async (req, res) => {
-  try {
-    const { month, year } = req.query;
-
-    if (!month || !year) {
-      return res.status(400).json(formatResponse(false, "month and year are required"));
-    }
-
-    if (month < 1 || month > 12) {
-      return res.status(400).json(formatResponse(false, "Month must be 1-12"));
-    }
-
-    const records = await SalaryRecord.find({
-      school: req.user.school._id,
-      month: parseInt(month),
-      year: parseInt(year),
-    })
-      .populate("user", "_id name email")
-      .populate("staffId", "_id")
-      .select(
-        "user status totalEarnings totalDeductions netSalary paidAmount"
-      );
-
-    const summary = {
-      month: parseInt(month),
-      year: parseInt(year),
-      school: req.user.school._id,
-      totalRecords: records.length,
-      totalSalaryPayable: 0,
-      totalSalaryPaid: 0,
-      totalSalaryPending: 0,
-      paidCount: 0,
-      partialCount: 0,
-      unpaidCount: 0,
-      staffDetails: [],
-    };
-
-    records.forEach((record) => {
-      summary.totalSalaryPayable += record.netSalary;
-      summary.totalSalaryPaid += record.paidAmount;
-      summary.totalSalaryPending += record.netSalary - record.paidAmount;
-
-      if (record.status === "PAID") summary.paidCount++;
-      else if (record.status === "PARTIAL") summary.partialCount++;
-      else if (record.status === "UNPAID") summary.unpaidCount++;
-
-      summary.staffDetails.push({
-        staffId: record.staffId._id,
-        staffName: record.user.name,
-        email: record.user.email,
-        status: record.status,
-        netSalary: record.netSalary,
-        totalEarnings: record.totalEarnings,
-        totalDeductions: record.totalDeductions,
-        paidAmount: record.paidAmount,
-        pendingAmount: record.netSalary - record.paidAmount,
-      });
+      month: parsedMonth,
+      year: parsedYear,
     });
 
-    return res
-      .status(200)
-      .json(formatResponse(true, "Salary matrix fetched successfully", summary));
+    return res.status(200).json(formatResponse(true, "Salary summary fetched successfully", summary));
   } catch (error) {
     return res
       .status(500)
-      .json(formatResponse(false, "Error fetching salary matrix", null, error.message));
-  }
-};
-
-const getYearlySalaryMatrix = async (req, res) => {
-  try {
-    const { staffId, year } = req.query;
-
-    if (!staffId || !year) {
-      return res.status(400).json(formatResponse(false, "staffId and year are required"));
-    }
-
-    const staff = await User.findById(staffId)
-      .populate("school", "_id")
-      .populate("role", "role")
-      .select("_id school role name email");
-    if (!staff) {
-      return res.status(404).json(formatResponse(false, "Staff not found"));
-    }
-
-    if (!isSalaryEligibleUser(staff)) {
-      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
-    }
-
-    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Staff not in your school"));
-    }
-
-    const records = await SalaryRecord.find({
-      staffId,
-      year: parseInt(year),
-      school: req.user.school._id,
-    })
-      .populate("user", "_id name")
-      .select("month status totalEarnings totalDeductions netSalary paidAmount")
-      .sort({ month: 1 });
-
-    const monthlyData = {};
-    let yearlyPayable = 0;
-    let yearlyPaid = 0;
-
-    records.forEach((record) => {
-      const month = record.month;
-      monthlyData[month] = {
-        month,
-        netSalary: record.netSalary,
-        paidAmount: record.paidAmount,
-        pendingAmount: record.netSalary - record.paidAmount,
-        status: record.status,
-        totalEarnings: record.totalEarnings,
-        totalDeductions: record.totalDeductions,
-      };
-      yearlyPayable += record.netSalary;
-      yearlyPaid += record.paidAmount;
-    });
-
-    return res.status(200).json(
-      formatResponse(true, "Yearly salary matrix fetched successfully", {
-        staffId,
-        year: parseInt(year),
-        staffName: staff.name,
-        yearlyPayable,
-        yearlyPaid,
-        yearlyPending: yearlyPayable - yearlyPaid,
-        monthlyBreakdown: Object.values(monthlyData),
-      })
-    );
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching yearly salary matrix", null, error.message));
-  }
-};
-
-const getPendingSalaries = async (req, res) => {
-  try {
-    const { month, year } = req.query;
-
-    const query = {
-      school: req.user.school._id,
-      status: { $in: ["UNPAID", "PARTIAL"] },
-    };
-
-    if (month && year) {
-      query.month = parseInt(month);
-      query.year = parseInt(year);
-    }
-
-    const records = await SalaryRecord.find(query)
-      .populate("user", "_id name email")
-      .populate("staffId", "_id")
-      .select(
-        "user month year status netSalary paidAmount totalEarnings totalDeductions"
-      )
-      .sort({ year: -1, month: -1 });
-
-    return res
-      .status(200)
-      .json(formatResponse(true, "Pending salaries fetched successfully", records));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching pending salaries", null, error.message));
-  }
-};
-
-// ==================== SALARY PAYMENT MANAGEMENT ====================
-
-const recordSalaryPayment = async (req, res) => {
-  try {
-    const { salaryRecordId, amount, method, transactionId = "" } = req.body;
-    const paymentAmount = toMoney(amount);
-
-    if (!salaryRecordId || amount === undefined || amount === null || !method) {
-      return res.status(400).json(formatResponse(false, "Missing required fields"));
-    }
-
-    if (!["BANK", "UPI", "CASH"].includes(method)) {
-      return res.status(400).json(formatResponse(false, "Invalid payment method"));
-    }
-
-    const record = await SalaryRecord.findById(salaryRecordId);
-    if (!record) {
-      return res.status(404).json(formatResponse(false, "Salary record not found"));
-    }
-
-    if (record.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-    if (paymentAmount <= 0) {
-      return res.status(400).json(formatResponse(false, "Payment amount must be greater than zero"));
-    }
-    console.log("Recording payment of amount:", paymentAmount, "for salary record:", salaryRecordId , "net salary:", record.netSalary, "paid amount so far:", record.paidAmount);
-
-    const pendingBeforePayment = toMoney(record.netSalary - record.paidAmount);
-    if (paymentAmount > pendingBeforePayment) {
-      return res.status(400).json(formatResponse(false, "Payment amount exceeds pending salary"));
-    }
-    const payment = await SalaryPayment.create({
-      staffId: record.staffId,
-      salaryRecordId,
-      amount: paymentAmount,
-      method,
-      transactionId,
-      status: "SUCCESS",
-      paidAt: new Date(),
-      createdBy: req.user._id,
-      updatedBy: req.user._id,
-      school: req.user.school._id,
-    });
-
-    const newPaidAmount = toMoney(record.paidAmount + paymentAmount);
-    const pendingAmount = toMoney(record.netSalary - newPaidAmount);
-
-    let newStatus = "UNPAID";
-    if (pendingAmount <= 0) {
-      newStatus = "PAID";
-    } else if (newPaidAmount > 0) {
-      newStatus = "PARTIAL";
-    }
-
-    record.paidAmount = newPaidAmount;
-    record.status = newStatus;
-    record.updatedBy = req.user._id;
-    await record.save();
-
-    const populated = await SalaryPayment.findById(payment._id)
-      .populate("staffId", "_id")
-      .populate("salaryRecordId", "_id month year netSalary");
-
-    return res
-      .status(201)
-      .json(formatResponse(true, "Salary payment recorded successfully", populated));
-  } catch (error) {
-    console.error("Error recording salary payment:", error);
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error recording payment", null, error.message));
-  }
-};
-
-const getSalaryPaymentsByRecord = async (req, res) => {
-  try {
-    const { salaryRecordId } = req.params;
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
-    const skip = (page - 1) * limit;
-
-    if (!salaryRecordId || !mongoose.Types.ObjectId.isValid(salaryRecordId)) {
-      return res.status(400).json(formatResponse(false, "Valid salaryRecordId is required"));
-    }
-
-    const record = await SalaryRecord.findById(salaryRecordId);
-    if (!record) {
-      return res.status(404).json(formatResponse(false, "Salary record not found"));
-    }
-
-    if (record.school.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
-    }
-
-    const paymentQuery = { salaryRecordId };
-    const totalRecords = await SalaryPayment.countDocuments(paymentQuery);
-
-    const payments = await SalaryPayment.find(paymentQuery)
-      .populate("staffId", "_id")
-      .sort({ paidAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const totalPages = Math.ceil(totalRecords / limit) || 1;
-
-    return res
-      .status(200)
-      .json(
-        formatResponse(true, "Payments fetched successfully", {
-          records: payments,
-          pagination: {
-            page,
-            limit,
-            totalRecords,
-            totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1,
-          },
-        })
-      );
-  } catch (error) {
-    return res
-      .status(500)
-      .json(formatResponse(false, "Error fetching payments", null, error.message));
+      .json(formatResponse(false, "Error fetching salary summary", null, error.message));
   }
 };
 
@@ -723,63 +371,46 @@ const getStaffPaymentHistory = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
-    const userRole = req.user?.role?.role || req.user?.role;
 
-    if (!staffId) {
-      return res.status(400).json(formatResponse(false, "staffId is required"));
+    if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
+      return res.status(400).json(formatResponse(false, "Valid staffId is required"));
     }
 
-    const staff = await User.findById(staffId)
-      .populate("school", "_id")
-      .populate("role", "role")
-      .select("_id school role name email");
-    if (!staff) {
-      return res.status(404).json(formatResponse(false, "Staff not found"));
-    }
-
-    if (!isSalaryEligibleUser(staff)) {
-      return res.status(400).json(formatResponse(false, "Selected user is not eligible for salary"));
-    }
-
-    // Staff/Teacher can only view own payment history
-    if ((userRole === "staff" || userRole === "teacher") && staff._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Access denied"));
-    }
-
-    if (staff.school?._id.toString() !== req.user.school._id.toString()) {
-      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+    const staffContext = await getStaffContext(req.user.school._id, staffId);
+    if (staffContext.error) {
+      return res.status(staffContext.error.code).json(formatResponse(false, staffContext.error.message));
     }
 
     const paymentQuery = {
-      staffId,
       school: req.user.school._id,
+      staffId,
     };
 
     const totalRecords = await SalaryPayment.countDocuments(paymentQuery);
 
     const payments = await SalaryPayment.find(paymentQuery)
-      .populate("salaryRecordId", "_id month year netSalary")
-      .sort({ paidAt: -1 })
+      .populate("salaryStructureId", "_id role components deductions")
+      .sort({ year: -1, month: -1, paidAt: -1 })
       .skip(skip)
       .limit(limit);
 
     const totalPages = Math.ceil(totalRecords / limit) || 1;
 
-    return res
-      .status(200)
-      .json(
-        formatResponse(true, "Payment history fetched successfully", {
-          records: payments,
-          pagination: {
-            page,
-            limit,
-            totalRecords,
-            totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1,
-          },
-        })
-      );
+    return res.status(200).json(
+      formatResponse(true, "Staff payment history fetched successfully", {
+        staffId,
+        totalPayments: totalRecords,
+        records: payments,
+        pagination: {
+          page,
+          limit,
+          totalRecords,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      })
+    );
   } catch (error) {
     return res
       .status(500)
@@ -787,20 +418,76 @@ const getStaffPaymentHistory = async (req, res) => {
   }
 };
 
+const getSalaryMatrixByMonth = async (req, res) => {
+  try {
+    const { month, year } = req.query;
+
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
+    }
+
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
+    }
+
+    const users = await User.find({ school: req.user.school._id })
+      .populate("role", "role")
+      .select("_id name email role");
+
+    const eligibleUsers = users.filter((user) => {
+      const roleName = (user?.role?.role || "").toLowerCase();
+      return roleName !== "student";
+    });
+
+    const records = [];
+
+    for (const user of eligibleUsers) {
+      const summary = await buildMonthSummary({
+        schoolId: req.user.school._id,
+        staffId: user._id,
+        month: parsedMonth,
+        year: parsedYear,
+      });
+
+      records.push({
+        staffId: user._id,
+        staffName: user.name,
+        role: user?.role?.role || "",
+        ...summary,
+      });
+    }
+
+    const payload = {
+      month: parsedMonth,
+      year: parsedYear,
+      totalStaff: records.length,
+      paidCount: records.filter((item) => item.status === "PAID").length,
+      partialCount: records.filter((item) => item.status === "PARTIAL").length,
+      pendingCount: records.filter((item) => item.status === "PENDING").length,
+      expectedAmount: toMoney(records.reduce((acc, item) => acc + item.expectedAmount, 0)),
+      paidAmount: toMoney(records.reduce((acc, item) => acc + item.paidAmount, 0)),
+      dueAmount: toMoney(records.reduce((acc, item) => acc + item.dueAmount, 0)),
+      records,
+    };
+
+    return res
+      .status(200)
+      .json(formatResponse(true, "Monthly salary matrix fetched successfully", payload));
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching salary matrix", null, error.message));
+  }
+};
+
 module.exports = {
-  // Salary Records
-  createSalaryRecord,
-  updateSalaryRecord,
-  deleteSalaryRecord,
-  getSalaryRecordById,
-  getStaffSalaryByMonth,
-  getStaffAllSalaries,
-  // Analytics
-  getSalaryMatrixByMonth,
-  getYearlySalaryMatrix,
-  getPendingSalaries,
-  // Payments
   recordSalaryPayment,
-  getSalaryPaymentsByRecord,
+  getSalaryPaymentById,
+  deleteSalaryPayment,
+  getStaffSalaryByMonth,
   getStaffPaymentHistory,
+  getSalaryMatrixByMonth,
 };

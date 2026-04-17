@@ -9,10 +9,11 @@ const {
   getTimeTableForDay,
   getTimeTableForClass,
 } = require('../controllers/timeTableCtrl');
+const { checkSubscriptionActive } = require('../middleware/subscriptionCheck');
 
 const router = express.Router();
 
-router.use(validateUser);
+router.use(validateUser, checkSubscriptionActive);
 
 // Read APIs: all authenticated users in same school
 router.get('/', getAllTimeTablesForSchool);

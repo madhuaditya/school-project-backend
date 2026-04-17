@@ -22,6 +22,7 @@ const salaryManagementRoutes = require('./routes/salaryManagementRoutes');
 const alertRoutes = require('./routes/alertRoutes');
 const sanitizeResponse = require("./middleware/sanitizeResponse")
 const profileRoutes = require('./routes/profileRoutes');
+const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const dotenv = require("dotenv")
 dotenv.config();
 const app = express();
@@ -59,19 +60,9 @@ app.use('/api/salary-structure', salaryStructureRoutes);
 app.use('/api/fee-management', feeManagementRoutes);
 app.use('/api/salary-management', salaryManagementRoutes);
 app.use('/api/alert', alertRoutes);
-app.use(sanitizeResponse)
+// app.use(sanitizeResponse)
 app.use('/api/profile', profileRoutes);
-// app.use('/sales', saleRoutes);
-// app.use('/invoice', require('./routes/invoiceRoutes'));
-// app.use('/transport', require('./routes/transportRoutes'));
-// app.use('/materials', require('./routes/rawMaterialRoutes'));
-// app.use('/material-alerts', require('./routes/materialAlertRoutes'));
-// app.use('/workers', require('./routes/workerRoutes'));
-// app.use('/maintenance', require('./routes/maintenanceRoutes'));
-// app.use('/sales-analytics', require('./routes/salesAnalyticsRoutes'));
-// app.use('/stock', require('./routes/stockRoutes'));
-// app.use('/reminders', require('./routes/reminderRoutes'));
-
+app.use('/api/subscription', subscriptionRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });

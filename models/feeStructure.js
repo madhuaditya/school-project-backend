@@ -12,7 +12,11 @@ const feeStructureSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Class",
       required: true,
-      unique: true,
+    },
+    school: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "School",
+      required: true,
     },
     components: {
       tuition: { type: Number, default: 0, set: roundToTwoDecimals },
@@ -34,5 +38,8 @@ const feeStructureSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+feeStructureSchema.index({ school: 1, class: 1, createdAt: -1 });
+feeStructureSchema.index({ school: 1, createdAt: -1 });
 
 module.exports = mongoose.model("FeeStructure", feeStructureSchema);

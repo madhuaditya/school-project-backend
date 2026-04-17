@@ -7,10 +7,11 @@ const {
 
 const { validateUser } = require("../middleware/auth");
 const { allow } = require("../middleware/role");
+const { checkSubscriptionActive } = require("../middleware/subscriptionCheck");
 
 const router = express.Router();
 
-router.use(validateUser);
+router.use(validateUser, checkSubscriptionActive);
 
 // ADD TEACHER TO SUBJECT
 router.post("/add-to-subject", allow("admin", "teacher"), addTeacherToSubject);
