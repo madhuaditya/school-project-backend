@@ -4,7 +4,7 @@ const FeeStructure = require("../models/feeStructure");
 const Student = require("../models/student");
 const Class = require("../models/class");
 
-const FEE_METHODS = ["UPI", "CARD", "NETBANKING", "CASH"];
+const FEE_METHODS = ["UPI", "CARD", "NETBANKING","BANK", "CASH"];
 
 const formatResponse = (success, msg, data = null, error = null) => ({
   success,
