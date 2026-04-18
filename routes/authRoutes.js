@@ -22,7 +22,10 @@ const {
   reinistateUser,
   getAllAdminsInSchool,
   getSchoolInfo,
-  getAllStaffInSchool
+  getAllStaffInSchool,
+  generateUniqueUsername,
+  generateStudentId,
+  generateNextStudentRollNumber,
 } = require("../controllers/authCtrl");
 const {
   validateRegister,
@@ -59,6 +62,9 @@ r.post("/delete-user-permanent/:id", validateUser, checkSubscriptionActive, allo
 r.post("/reinstate-user/:id", validateUser, checkSubscriptionActive, allow("admin"), reinistateUser);
 r.get("/admin/all", validateUser, checkSubscriptionActive, allow("admin"), getAllAdminsInSchool);
 r.get("/staff/all", validateUser, checkSubscriptionActive, allow("admin"), getAllStaffInSchool);
+r.post("/generate/username", validateUser, checkSubscriptionActive, allow("admin"), generateUniqueUsername);
+r.post("/generate/student-id", validateUser, checkSubscriptionActive, allow("admin"), generateStudentId);
+r.post("/generate/roll-number", validateUser, checkSubscriptionActive, allow("admin"), generateNextStudentRollNumber);
 
 // School routes
 r.post("/school/register", validateSChoolRegister, registerSchool);

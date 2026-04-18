@@ -48,6 +48,11 @@ const progressSchema = new mongoose.Schema({
 
   percentage: Number,
 
+  grade: {
+    type: String,
+    enum: ['A+', 'A', 'B', 'C', 'D', 'Fail'],
+  },
+
   remarks: String,
 
   date: {
@@ -81,5 +86,8 @@ progressSchema.index({
   title: 1,
   academicYear: 1
 }, { unique: true });
+
+progressSchema.index({ student: 1, academicYear: 1, date: -1 });
+progressSchema.index({ class: 1, academicYear: 1 });
 
 module.exports = mongoose.model('Progress', progressSchema);

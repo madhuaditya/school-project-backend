@@ -9,6 +9,8 @@ const VALID_ROLES = ['admin', 'teacher', 'student', 'staff', 'school'];
 const Teacher = require('../models/teacher');
 const Admin = require('../models/admin');
 const Subscription = require('../models/subscription');
+const Student = require('../models/student');
+const ClassModel = require('../models/class');
 const { validateStudentAndAdminofSchool } = require('../middleware/ValidateRelation');
 
 // ==================== RESPONSE FORMAT ====================
@@ -72,13 +74,171 @@ const createHttpError = (statusCode, message) => {
   return error;
 };
 
+const toSafeUpper = (value = '') => String(value).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+const toSafeLower = (value = '') => String(value).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+const getSchoolCode = (school) => {
+  const schoolIdCode = toSafeUpper(school?.schoolId || '');
+  if (schoolIdCode) return schoolIdCode;
+
+  const words = String(school?.schoolName || '')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (!words.length) return 'SCHL';
+  const initials = words.map((word) => word[0]).join('');
+  return toSafeUpper(initials).slice(0, 6) || 'SCHL';
+};
+
+const getNextNumericSuffix = (values, pattern) => {
+  let max = 0;
+  values.forEach((value) => {
+    const match = String(value || '').match(pattern);
+    if (!match) return;
+    const num = Number(match[1]);
+    if (!Number.isNaN(num) && num > max) max = num;
+  });
+  return max + 1;
+};
+
+const generateUniqueUsername = async (req, res) => {
+  try {
+    const currentRole = req.user?.role?.role;
+    if (currentRole !== 'admin') {
+      return res.status(403).json(formatResponse(false, 'Only admins can generate username'));
+    }
+
+    const { name, role = 'user' } = req.body || {};
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json(formatResponse(false, 'Name is required to generate username'));
+    }
+
+    const schoolId = req.user?.school?._id || req.user?.school;
+    if (!schoolId || !mongoose.Types.ObjectId.isValid(schoolId)) {
+      return res.status(400).json(formatResponse(false, 'Invalid school mapping for admin'));
+    }
+
+    const school = await School.findById(schoolId).select('_id schoolId schoolName');
+    if (!school) {
+      return res.status(404).json(formatResponse(false, 'School not found'));
+    }
+
+    const schoolCode = getSchoolCode(school);
+    const roleCode = toSafeLower(role).slice(0, 2) || 'us';
+    const baseName = toSafeLower(name).slice(0, 10) || 'user';
+    const prefix = `${schoolCode.toLowerCase()}_${roleCode}${baseName}`;
+
+    let username = prefix;
+    let suffix = 1;
+    while (await User.exists({ username })) {
+      username = `${prefix}${suffix}`;
+      suffix += 1;
+    }
+
+    return res.status(200).json(
+      formatResponse(true, 'Username generated successfully', {
+        username,
+        pattern: `${schoolCode}_<role><name><optional-number>`,
+      })
+    );
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error generating username', null, error.message));
+  }
+};
+
+const generateStudentId = async (req, res) => {
+  try {
+    const currentRole = req.user?.role?.role;
+    if (currentRole !== 'admin') {
+      return res.status(403).json(formatResponse(false, 'Only admins can generate student ID'));
+    }
+
+    const schoolId = req.user?.school?._id || req.user?.school;
+    if (!schoolId || !mongoose.Types.ObjectId.isValid(schoolId)) {
+      return res.status(400).json(formatResponse(false, 'Invalid school mapping for admin'));
+    }
+
+    const school = await School.findById(schoolId).select('_id schoolId schoolName');
+    if (!school) {
+      return res.status(404).json(formatResponse(false, 'School not found'));
+    }
+
+    const year = Number(req.body?.year) || new Date().getFullYear();
+    const schoolCode = getSchoolCode(school);
+    const prefix = `${schoolCode}-STD-${year}-`;
+
+    const existing = await Student.find({ studentId: { $regex: `^${prefix}` } }).select('studentId');
+    const next = getNextNumericSuffix(existing.map((row) => row.studentId), new RegExp(`^${prefix}(\\d+)$`));
+    const studentId = `${prefix}${String(next).padStart(4, '0')}`;
+
+    return res.status(200).json(
+      formatResponse(true, 'Student ID generated successfully', {
+        studentId,
+        pattern: `${schoolCode}-STD-${year}-0001`,
+      })
+    );
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error generating student ID', null, error.message));
+  }
+};
+
+const generateNextStudentRollNumber = async (req, res) => {
+  try {
+    const currentRole = req.user?.role?.role;
+    if (currentRole !== 'admin') {
+      return res.status(403).json(formatResponse(false, 'Only admins can generate roll number'));
+    }
+
+    const { classId } = req.body || {};
+    if (!classId || !mongoose.Types.ObjectId.isValid(classId)) {
+      return res.status(400).json(formatResponse(false, 'Valid classId is required'));
+    }
+
+    const schoolId = req.user?.school?._id || req.user?.school;
+    if (!schoolId || !mongoose.Types.ObjectId.isValid(schoolId)) {
+      return res.status(400).json(formatResponse(false, 'Invalid school mapping for admin'));
+    }
+
+    const classDoc = await ClassModel.findById(classId).select('_id name section grade school');
+    if (!classDoc) {
+      return res.status(404).json(formatResponse(false, 'Class not found'));
+    }
+
+    if (String(classDoc.school) !== String(schoolId)) {
+      return res.status(403).json(formatResponse(false, 'Cannot generate roll number for another school class'));
+    }
+
+    const classPrefix = `${toSafeUpper(classDoc.name).slice(0, 3) || `G${classDoc.grade}`}-${toSafeUpper(classDoc.section).slice(0, 2) || 'A'}`;
+    const prefix = `${classPrefix}-`;
+
+    const existing = await Student.find({ class: classDoc._id }).select('rollNumber');
+    const next = getNextNumericSuffix(existing.map((row) => row.rollNumber), new RegExp(`^${prefix}(\\d+)$`));
+    const rollNumber = `${prefix}${String(next).padStart(3, '0')}`;
+
+    return res.status(200).json(
+      formatResponse(true, 'Roll number generated successfully', {
+        classId: classDoc._id,
+        className: classDoc.name,
+        section: classDoc.section,
+        grade: classDoc.grade,
+        rollNumber,
+        pattern: `${classPrefix}-001`,
+      })
+    );
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error generating roll number', null, error.message));
+  }
+};
+
 // REGISTER
 const register = async (req, res) => {
   const session = await mongoose.startSession();
   let createdUser = null;
 
   try {
-    const { name, email, phone, password, role, school, image , username } = req.body;
+    const { name, email, phone, password, role, school, image , username, gender } = req.body;
     const adminInfo = req.user;
     
     if(!adminInfo || (adminInfo.role.role !== 'admin' && adminInfo.role.role !== 'school' && adminInfo.role.role !== 'teacher')) {
@@ -139,6 +299,7 @@ const register = async (req, res) => {
         city: req.body.city || '',
         state: req.body.state || '',
         pinCode: req.body.pinCode || '',
+        gender: gender || 'Not specified',
         role: roleDoc._id,
         school: sch._id,
         createdBy: adminInfo._id,
@@ -925,5 +1086,8 @@ module.exports = {
   deletePermanently,
   reinistateUser,
   getSchoolInfo,
-  getAllStaffInSchool
+  getAllStaffInSchool,
+  generateUniqueUsername,
+  generateStudentId,
+  generateNextStudentRollNumber
 };

@@ -13,6 +13,10 @@ const {
   generateStyledReport,
   generateCBSEReport,
   getStudentResultByYear,
+  getStudentDashboardAnalytics,
+  getClassDashboardAnalytics,
+  exportStudentPerformanceCsv,
+  exportStudentPerformanceExcel,
 } = require("../controllers/progressCtrl");
 
 const { validateUser } = require("../middleware/auth");
@@ -55,6 +59,30 @@ router.get(
   "/student/:studentId",
   allow("admin", "teacher", "student"),
   getStudentPerformance,
+);
+
+router.get(
+  "/student-dashboard/:studentId",
+  allow("admin", "teacher", "student"),
+  getStudentDashboardAnalytics,
+);
+
+router.get(
+  "/class-dashboard/:classId",
+  allow("admin", "teacher"),
+  getClassDashboardAnalytics,
+);
+
+router.get(
+  "/export/csv/:studentId",
+  allow("admin", "teacher", "student"),
+  exportStudentPerformanceCsv,
+);
+
+router.get(
+  "/export/excel/:studentId",
+  allow("admin", "teacher", "student"),
+  exportStudentPerformanceExcel,
 );
 
 // CLASS RESULT

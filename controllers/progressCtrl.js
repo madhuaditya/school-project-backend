@@ -64,6 +64,39 @@ const getValidStudentAndSubject = async ({ studentId, subjectId, schoolId }) => 
   return { student, subject };
 };
 
+const applyDateRangeFilter = (queryFilter, startDate, endDate) => {
+  if (!startDate && !endDate) return;
+
+  const dateFilter = {};
+  if (startDate) {
+    const parsedStart = new Date(startDate);
+    if (!Number.isNaN(parsedStart.getTime())) {
+      parsedStart.setHours(0, 0, 0, 0);
+      dateFilter.$gte = parsedStart;
+    }
+  }
+
+  if (endDate) {
+    const parsedEnd = new Date(endDate);
+    if (!Number.isNaN(parsedEnd.getTime())) {
+      parsedEnd.setHours(23, 59, 59, 999);
+      dateFilter.$lte = parsedEnd;
+    }
+  }
+
+  if (Object.keys(dateFilter).length) {
+    queryFilter.date = dateFilter;
+  }
+};
+
+const csvEscape = (value) => {
+  const stringValue = value == null ? '' : String(value);
+  if (/[",\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+};
+
 const addProgress = async (req, res) => {
   try {
     const {
@@ -226,7 +259,7 @@ const getSubjectRanking = async (req, res) => {
 const getStudentPerformance = async (req, res) => {
   try {
     const { studentId } = req.params;
-    const { type, subjectId, academicYear } = req.query;
+    const { type, subjectId, academicYear, startDate, endDate, page = 1, limit = 20 } = req.query;
     const school = getSchoolId(req.user);
     const role = getUserRole(req.user);
     const student = await resolveStudentByStudentOrUserId(studentId);
@@ -246,15 +279,516 @@ const getStudentPerformance = async (req, res) => {
     if (type) filter.type = type;
     if (subjectId) filter.subject = subjectId;
     if (academicYear) filter.academicYear = academicYear;
+    applyDateRangeFilter(filter, startDate, endDate);
+
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const skip = (pageNumber - 1) * pageSize;
+
+    const totalItems = await Progress.countDocuments(filter);
+    const totalPages = Math.max(Math.ceil(totalItems / pageSize), 1);
 
     const data = await Progress.find(filter)
       .populate('subject', 'name code class teacher')
       .populate({ path: 'class', select: 'name section grade' })
-      .sort({ date: -1 });
+      .sort({ date: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize);
 
-    return res.status(200).json(formatResponse(true, "Student performance fetched successfully", data));
+    const summaryAgg = await Progress.aggregate([
+      { $match: { ...filter, student: student._id } },
+      {
+        $group: {
+          _id: null,
+          totalMarks: { $sum: '$totalMarks' },
+          obtainedMarks: { $sum: '$marksObtained' },
+          avgPercentage: { $avg: '$percentage' },
+          recordCount: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const summary = summaryAgg[0] || {
+      totalMarks: 0,
+      obtainedMarks: 0,
+      avgPercentage: 0,
+      recordCount: 0,
+    };
+
+    const response = {
+      student: {
+        _id: student._id,
+        userId: student.user?._id,
+        name: student.user?.name,
+        class: student.class,
+      },
+      records: data,
+      summary: {
+        ...summary,
+        avgPercentage: Number(summary.avgPercentage || 0).toFixed(2),
+        grade: getGrade(Number(summary.avgPercentage || 0)),
+      },
+      pagination: {
+        page: pageNumber,
+        limit: pageSize,
+        totalItems,
+        totalPages,
+        hasNext: pageNumber < totalPages,
+        hasPrev: pageNumber > 1,
+      },
+    };
+
+    return res.status(200).json(formatResponse(true, 'Student performance fetched successfully', response));
   } catch (e) {
     return res.status(500).json(formatResponse(false, "Error fetching student performance", null, e.message));
+  }
+};
+
+const getStudentDashboardAnalytics = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { academicYear, type, subjectId, startDate, endDate } = req.query;
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+    const student = await resolveStudentByStudentOrUserId(studentId);
+
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+
+    if (!student.user?.school || school.toString() !== student.user.school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Student is not belong to your school'));
+    }
+
+    if (role === 'student' && student.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json(formatResponse(false, 'Students can view only their own performance'));
+    }
+
+    const filter = { student: student._id, school };
+    if (type) filter.type = type;
+    if (subjectId) filter.subject = subjectId;
+    if (academicYear) filter.academicYear = academicYear;
+    applyDateRangeFilter(filter, startDate, endDate);
+
+    const records = await Progress.find(filter)
+      .populate('subject', 'name code')
+      .sort({ date: 1, createdAt: 1 });
+
+    const totalRecords = records.length;
+    const totalMarks = records.reduce((acc, record) => acc + Number(record.totalMarks || 0), 0);
+    const obtainedMarks = records.reduce((acc, record) => acc + Number(record.marksObtained || 0), 0);
+    const averagePercentage = totalRecords ? records.reduce((acc, record) => acc + Number(record.percentage || 0), 0) / totalRecords : 0;
+
+    const gradeDistribution = { 'A+': 0, A: 0, B: 0, C: 0, D: 0, Fail: 0 };
+    const trend = [];
+    const subjectBuckets = {};
+    const assessmentBuckets = {};
+
+    records.forEach((record) => {
+      const percentage = Number(record.percentage || 0);
+      const grade = getGrade(percentage);
+      gradeDistribution[grade] = (gradeDistribution[grade] || 0) + 1;
+
+      const labelDate = record.date ? new Date(record.date).toISOString().slice(0, 10) : new Date(record.createdAt).toISOString().slice(0, 10);
+      trend.push({
+        _id: record._id,
+        label: record.title,
+        type: record.type,
+        date: labelDate,
+        percentage: Number(percentage.toFixed(2)),
+        marksObtained: Number(record.marksObtained || 0),
+        totalMarks: Number(record.totalMarks || 0),
+      });
+
+      const subjectName = record.subject?.name || 'Unknown';
+      if (!subjectBuckets[subjectName]) {
+        subjectBuckets[subjectName] = {
+          subjectName,
+          count: 0,
+          obtainedMarks: 0,
+          totalMarks: 0,
+        };
+      }
+
+      subjectBuckets[subjectName].count += 1;
+      subjectBuckets[subjectName].obtainedMarks += Number(record.marksObtained || 0);
+      subjectBuckets[subjectName].totalMarks += Number(record.totalMarks || 0);
+
+      const assessmentType = String(record.type || 'other').toLowerCase();
+      if (!assessmentBuckets[assessmentType]) {
+        assessmentBuckets[assessmentType] = {
+          type: assessmentType,
+          count: 0,
+          obtainedMarks: 0,
+          totalMarks: 0,
+        };
+      }
+
+      assessmentBuckets[assessmentType].count += 1;
+      assessmentBuckets[assessmentType].obtainedMarks += Number(record.marksObtained || 0);
+      assessmentBuckets[assessmentType].totalMarks += Number(record.totalMarks || 0);
+    });
+
+    const subjectComparison = Object.values(subjectBuckets)
+      .map((item) => ({
+        ...item,
+        averagePercentage: item.totalMarks ? Number(((item.obtainedMarks / item.totalMarks) * 100).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => b.averagePercentage - a.averagePercentage);
+
+    const assessmentComparison = Object.values(assessmentBuckets)
+      .map((item) => ({
+        ...item,
+        averagePercentage: item.totalMarks ? Number(((item.obtainedMarks / item.totalMarks) * 100).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => b.averagePercentage - a.averagePercentage);
+
+    const sortedByPercentage = [...trend].sort((a, b) => b.percentage - a.percentage);
+    const topAssessments = sortedByPercentage.slice(0, 5);
+    const bottomAssessments = [...sortedByPercentage].reverse().slice(0, 5);
+
+    const rankingMatch = {
+      school: new mongoose.Types.ObjectId(school),
+      class: new mongoose.Types.ObjectId(student.class?._id || student.class),
+    };
+    if (academicYear) rankingMatch.academicYear = academicYear;
+
+    const rankingAgg = await Progress.aggregate([
+      { $match: rankingMatch },
+      {
+        $group: {
+          _id: '$student',
+          obtainedMarks: { $sum: '$marksObtained' },
+          totalMarks: { $sum: '$totalMarks' },
+        },
+      },
+      {
+        $addFields: {
+          percentage: {
+            $cond: [
+              { $gt: ['$totalMarks', 0] },
+              { $multiply: [{ $divide: ['$obtainedMarks', '$totalMarks'] }, 100] },
+              0,
+            ],
+          },
+        },
+      },
+      { $sort: { percentage: -1 } },
+    ]);
+
+    const studentIndex = rankingAgg.findIndex((row) => row._id.toString() === student._id.toString());
+    const classRanking = {
+      rank: studentIndex >= 0 ? studentIndex + 1 : null,
+      totalStudents: rankingAgg.length,
+      percentile:
+        studentIndex >= 0 && rankingAgg.length > 0
+          ? Number((((rankingAgg.length - studentIndex) / rankingAgg.length) * 100).toFixed(2))
+          : null,
+    };
+
+    const attendanceFilter = {
+      user: student.user?._id,
+      school,
+    };
+
+    const attendanceRecords = await Attendance.find(attendanceFilter).select('status');
+    const attendanceTotal = attendanceRecords.length;
+    const presentDays = attendanceRecords.filter((row) => row.status === 'present').length;
+    const attendanceRate = attendanceTotal > 0 ? Number(((presentDays / attendanceTotal) * 100).toFixed(2)) : 0;
+
+    return res.status(200).json(
+      formatResponse(true, 'Student dashboard analytics fetched successfully', {
+        student: {
+          _id: student._id,
+          userId: student.user?._id,
+          name: student.user?.name,
+          class: student.class,
+          rollNumber: student.rollNumber,
+          studentId: student.studentId,
+        },
+        summary: {
+          totalRecords,
+          totalMarks,
+          obtainedMarks,
+          averagePercentage: Number(averagePercentage.toFixed(2)),
+          grade: getGrade(averagePercentage),
+        },
+        trend,
+        subjectComparison,
+        gradeDistribution,
+        assessmentComparison,
+        topAssessments,
+        bottomAssessments,
+        classRanking,
+        attendance: {
+          attendanceRate,
+          presentDays,
+          totalDays: attendanceTotal,
+        },
+      })
+    );
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error fetching student dashboard analytics', null, e.message));
+  }
+};
+
+const getClassDashboardAnalytics = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const { academicYear, type, subjectId, startDate, endDate } = req.query;
+    const school = getSchoolId(req.user);
+
+    const classData = await Class.findById(classId).select('_id name section grade school');
+    if (!classData) return res.status(404).json(formatResponse(false, 'Class not found'));
+
+    if (!classData.school || classData.school.toString() !== school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Class is outside your school'));
+    }
+
+    const filter = {
+      class: classData._id,
+      school,
+    };
+    if (academicYear) filter.academicYear = academicYear;
+    if (type) filter.type = type;
+    if (subjectId) filter.subject = subjectId;
+    applyDateRangeFilter(filter, startDate, endDate);
+
+    const records = await Progress.find(filter)
+      .populate('subject', 'name code')
+      .populate({ path: 'student', select: 'studentId rollNumber user', populate: { path: 'user', select: 'name' } })
+      .sort({ date: 1, createdAt: 1 });
+
+    const totalRecords = records.length;
+    const totalMarks = records.reduce((acc, row) => acc + Number(row.totalMarks || 0), 0);
+    const obtainedMarks = records.reduce((acc, row) => acc + Number(row.marksObtained || 0), 0);
+    const averagePercentage = totalRecords ? (obtainedMarks / Math.max(totalMarks, 1)) * 100 : 0;
+
+    const gradeDistribution = { 'A+': 0, A: 0, B: 0, C: 0, D: 0, Fail: 0 };
+    const subjectBuckets = {};
+    const studentBuckets = {};
+    const assessmentBuckets = {};
+
+    records.forEach((record) => {
+      const percentage = Number(record.percentage || 0);
+      const grade = getGrade(percentage);
+      gradeDistribution[grade] = (gradeDistribution[grade] || 0) + 1;
+
+      const subjectName = record.subject?.name || 'Unknown';
+      if (!subjectBuckets[subjectName]) {
+        subjectBuckets[subjectName] = {
+          subjectName,
+          count: 0,
+          obtainedMarks: 0,
+          totalMarks: 0,
+        };
+      }
+      subjectBuckets[subjectName].count += 1;
+      subjectBuckets[subjectName].obtainedMarks += Number(record.marksObtained || 0);
+      subjectBuckets[subjectName].totalMarks += Number(record.totalMarks || 0);
+
+      const studentKey = record.student?._id?.toString() || 'unknown';
+      if (!studentBuckets[studentKey]) {
+        studentBuckets[studentKey] = {
+          studentId: record.student?._id,
+          name: record.student?.user?.name || 'Unknown Student',
+          rollNumber: record.student?.rollNumber || '-',
+          studentCode: record.student?.studentId || '-',
+          obtainedMarks: 0,
+          totalMarks: 0,
+          count: 0,
+        };
+      }
+      studentBuckets[studentKey].obtainedMarks += Number(record.marksObtained || 0);
+      studentBuckets[studentKey].totalMarks += Number(record.totalMarks || 0);
+      studentBuckets[studentKey].count += 1;
+
+      const assessmentType = String(record.type || 'other').toLowerCase();
+      if (!assessmentBuckets[assessmentType]) {
+        assessmentBuckets[assessmentType] = {
+          type: assessmentType,
+          count: 0,
+          obtainedMarks: 0,
+          totalMarks: 0,
+        };
+      }
+      assessmentBuckets[assessmentType].count += 1;
+      assessmentBuckets[assessmentType].obtainedMarks += Number(record.marksObtained || 0);
+      assessmentBuckets[assessmentType].totalMarks += Number(record.totalMarks || 0);
+    });
+
+    const subjectComparison = Object.values(subjectBuckets)
+      .map((item) => ({
+        ...item,
+        averagePercentage: item.totalMarks ? Number(((item.obtainedMarks / item.totalMarks) * 100).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => b.averagePercentage - a.averagePercentage);
+
+    const assessmentComparison = Object.values(assessmentBuckets)
+      .map((item) => ({
+        ...item,
+        averagePercentage: item.totalMarks ? Number(((item.obtainedMarks / item.totalMarks) * 100).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => b.averagePercentage - a.averagePercentage);
+
+    const ranking = Object.values(studentBuckets)
+      .map((item) => {
+        const percentage = item.totalMarks ? (item.obtainedMarks / item.totalMarks) * 100 : 0;
+        return {
+          ...item,
+          percentage: Number(percentage.toFixed(2)),
+          grade: getGrade(percentage),
+        };
+      })
+      .sort((a, b) => b.percentage - a.percentage)
+      .map((item, index) => ({ ...item, rank: index + 1 }));
+
+    return res.status(200).json(
+      formatResponse(true, 'Class dashboard analytics fetched successfully', {
+        class: classData,
+        summary: {
+          totalRecords,
+          totalMarks,
+          obtainedMarks,
+          averagePercentage: Number(averagePercentage.toFixed(2)),
+          grade: getGrade(averagePercentage),
+          studentCount: ranking.length,
+        },
+        ranking,
+        subjectComparison,
+        gradeDistribution,
+        assessmentComparison,
+      })
+    );
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error fetching class dashboard analytics', null, e.message));
+  }
+};
+
+const exportStudentPerformanceCsv = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { type, subjectId, academicYear, startDate, endDate } = req.query;
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+    const student = await resolveStudentByStudentOrUserId(studentId);
+
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+    if (!student.user?.school || school.toString() !== student.user.school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Student is not belong to your school'));
+    }
+    if (role === 'student' && student.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json(formatResponse(false, 'Students can export only their own performance'));
+    }
+
+    const filter = { student: student._id, school };
+    if (type) filter.type = type;
+    if (subjectId) filter.subject = subjectId;
+    if (academicYear) filter.academicYear = academicYear;
+    applyDateRangeFilter(filter, startDate, endDate);
+
+    const records = await Progress.find(filter)
+      .populate('subject', 'name')
+      .sort({ date: -1, createdAt: -1 });
+
+    const rows = [
+      ['Date', 'Title', 'Subject', 'Type', 'Marks Obtained', 'Total Marks', 'Percentage', 'Grade', 'Remarks'],
+      ...records.map((record) => [
+        record.date ? new Date(record.date).toISOString().slice(0, 10) : '',
+        record.title || '',
+        record.subject?.name || '',
+        record.type || '',
+        Number(record.marksObtained || 0),
+        Number(record.totalMarks || 0),
+        Number(record.percentage || 0).toFixed(2),
+        record.grade || getGrade(Number(record.percentage || 0)),
+        record.remarks || '',
+      ]),
+    ];
+
+    const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=student-performance-${student._id}.csv`);
+    return res.status(200).send(csv);
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error exporting performance CSV', null, e.message));
+  }
+};
+
+const exportStudentPerformanceExcel = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { type, subjectId, academicYear, startDate, endDate } = req.query;
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+    const student = await resolveStudentByStudentOrUserId(studentId);
+
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+    if (!student.user?.school || school.toString() !== student.user.school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Student is not belong to your school'));
+    }
+    if (role === 'student' && student.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json(formatResponse(false, 'Students can export only their own performance'));
+    }
+
+    const filter = { student: student._id, school };
+    if (type) filter.type = type;
+    if (subjectId) filter.subject = subjectId;
+    if (academicYear) filter.academicYear = academicYear;
+    applyDateRangeFilter(filter, startDate, endDate);
+
+    const records = await Progress.find(filter)
+      .populate('subject', 'name')
+      .sort({ date: -1, createdAt: -1 });
+
+    const rowsXml = records
+      .map((record) => {
+        const values = [
+          record.date ? new Date(record.date).toISOString().slice(0, 10) : '',
+          record.title || '',
+          record.subject?.name || '',
+          record.type || '',
+          Number(record.marksObtained || 0),
+          Number(record.totalMarks || 0),
+          Number(record.percentage || 0).toFixed(2),
+          record.grade || getGrade(Number(record.percentage || 0)),
+          record.remarks || '',
+        ];
+
+        return `<Row>${values
+          .map((value) => `<Cell><Data ss:Type="String">${String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Data></Cell>`)
+          .join('')}</Row>`;
+      })
+      .join('');
+
+    const workbookXml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="Performance">
+  <Table>
+   <Row>
+    <Cell><Data ss:Type="String">Date</Data></Cell>
+    <Cell><Data ss:Type="String">Title</Data></Cell>
+    <Cell><Data ss:Type="String">Subject</Data></Cell>
+    <Cell><Data ss:Type="String">Type</Data></Cell>
+    <Cell><Data ss:Type="String">Marks Obtained</Data></Cell>
+    <Cell><Data ss:Type="String">Total Marks</Data></Cell>
+    <Cell><Data ss:Type="String">Percentage</Data></Cell>
+    <Cell><Data ss:Type="String">Grade</Data></Cell>
+    <Cell><Data ss:Type="String">Remarks</Data></Cell>
+   </Row>
+   ${rowsXml}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=student-performance-${student._id}.xls`);
+    return res.status(200).send(workbookXml);
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error exporting performance Excel', null, e.message));
   }
 };
 
@@ -1001,6 +1535,10 @@ module.exports = {
   generateAdvancedReport,
   generateStyledReport,
   generateCBSEReport,
+  getStudentDashboardAnalytics,
+  getClassDashboardAnalytics,
+  exportStudentPerformanceCsv,
+  exportStudentPerformanceExcel,
   buildCBSEData,
   getGrade,
 };
