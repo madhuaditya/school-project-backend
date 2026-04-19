@@ -28,6 +28,10 @@ const studentSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    idCardPhoto: {
+        type: String,
+        trim: true,
+    },
     motherName: {
         type: String,
         required: true

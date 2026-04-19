@@ -8,6 +8,9 @@ const schoolSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    phone: {
+        type: String,
+    },
     email: {
         type: String,
         required: true
@@ -35,6 +38,24 @@ const schoolSchema = new mongoose.Schema({
     pinCode: {
         type: String,
         required: true
+    },
+    image: {
+        type: String,
+    },
+    idCardLogo: {
+        type: String,
+    },
+    idCardSettings: {
+      principalName: {
+        type: String,
+      },
+      signatureLabel: {
+        type: String,
+        default: 'Principal Signature',
+      },
+      principalSignatureUrl: {
+        type: String,
+      },
     },
     role: {
         type: mongoose.Schema.Types.ObjectId,

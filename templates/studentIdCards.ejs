@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Student ID Cards</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+
+      .sheet {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10mm;
+        min-height: 280mm;
+        page-break-after: always;
+        align-items: start;
+      }
+
+      .card {
+        width: 86mm;
+        min-height: 54mm;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+      }
+
+      .card.horizontal {
+        width: 86mm;
+      }
+
+      .card.vertical {
+        width: 60mm;
+        min-height: 92mm;
+      }
+
+      .theme-template-1 .header {
+        background: linear-gradient(125deg, #0b4f6c, #157a6e);
+      }
+
+      .theme-template-2 .header {
+        background: linear-gradient(125deg, #1d4ed8, #0891b2);
+      }
+
+      .theme-template-3 .header {
+        background: linear-gradient(125deg, #4c1d95, #7c3aed);
+      }
+
+      .theme-template-4 .header {
+        background: linear-gradient(125deg, #b45309, #ea580c);
+      }
+
+      .header {
+        color: #ffffff;
+        padding: 8px 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .logo {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        object-fit: cover;
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .title-wrap {
+        line-height: 1.1;
+      }
+
+      .school-name {
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .school-meta {
+        font-size: 8px;
+        opacity: 0.95;
+      }
+
+      .body {
+        padding: 8px 10px;
+      }
+
+      .main {
+        display: flex;
+        gap: 8px;
+      }
+
+      .card.vertical .main {
+        flex-direction: column;
+      }
+
+      .photo {
+        width: 52px;
+        height: 62px;
+        border-radius: 6px;
+        object-fit: cover;
+        border: 1px solid #cbd5e1;
+        background: #f1f5f9;
+      }
+
+      .card.vertical .photo {
+        width: 100%;
+        height: 110px;
+      }
+
+      .student-name {
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 2px;
+      }
+
+      .line {
+        font-size: 8px;
+        margin-bottom: 1px;
+      }
+
+      .line strong {
+        color: #1e293b;
+      }
+
+      .footer {
+        margin-top: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+      }
+
+      .qr {
+        width: 48px;
+        height: 48px;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 6px;
+        line-height: 1.2;
+        text-align: center;
+        color: #334155;
+        word-break: break-word;
+      }
+
+      .qr img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .sign {
+        text-align: right;
+        font-size: 7px;
+      }
+
+      .signature-image {
+        width: 50px;
+        height: 16px;
+        object-fit: contain;
+        display: block;
+        margin-left: auto;
+      }
+
+      .sign-name {
+        border-top: 1px solid #475569;
+        margin-top: 16px;
+        padding-top: 2px;
+        font-size: 8px;
+        font-weight: 600;
+      }
+
+      .back {
+        padding: 10px;
+        font-size: 8px;
+      }
+
+      .back h4 {
+        margin: 0 0 6px;
+        font-size: 9px;
+      }
+
+      .back p {
+        margin: 0 0 3px;
+      }
+
+      .back .notice {
+        margin-top: 7px;
+        border-top: 1px dashed #94a3b8;
+        padding-top: 5px;
+        color: #475569;
+      }
+
+      .card-pair {
+        display: grid;
+        gap: 6px;
+      }
+
+      @media print {
+        body {
+          background: #ffffff;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <% cards.forEach(function(card, index) { %>
+      <div class="sheet">
+        <div class="card-pair">
+          <div class="card <%= (templateId === 'template-3' || templateId === 'template-4') ? 'vertical' : 'horizontal' %> theme-<%= templateId %>">
+            <div class="header">
+              <% if (card.logoUrl) { %>
+                <img src="<%= card.logoUrl %>" alt="School logo" class="logo" />
+              <% } else { %>
+                <div class="logo"></div>
+              <% } %>
+              <div class="title-wrap">
+                <div class="school-name"><%= card.schoolName %></div>
+                <div class="school-meta">Student Identity Card</div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="main">
+                <% if (card.studentPhoto) { %>
+                  <img src="<%= card.studentPhoto %>" alt="Student" class="photo" />
+                <% } else { %>
+                  <div class="photo"></div>
+                <% } %>
+                <div>
+                  <div class="student-name"><%= card.name %></div>
+                  <div class="line"><strong>Adm No:</strong> <%= card.admissionNo %></div>
+                  <div class="line"><strong>Class:</strong> <%= card.classLabel %></div>
+                  <div class="line"><strong>Roll:</strong> <%= card.rollNumber %></div>
+                  <div class="line"><strong>DOB:</strong> <%= card.dateOfBirth %></div>
+                  <div class="line"><strong>Blood:</strong> <%= card.bloodGroup %></div>
+                  <div class="line"><strong>Valid Till:</strong> <%= card.validUntil %></div>
+                </div>
+              </div>
+              <div class="footer">
+                <div class="qr">
+                  <% if (card.qrCodeDataUrl) { %>
+                    <img src="<%= card.qrCodeDataUrl %>" alt="QR Code" />
+                  <% } else { %>
+                    <%= card.qrText %>
+                  <% } %>
+                </div>
+                <div class="sign">
+                  <% if (card.principalSignatureUrl) { %>
+                    <img src="<%= card.principalSignatureUrl %>" alt="Principal signature" class="signature-image" />
+                  <% } %>
+                  <div class="sign-name"><%= card.principalName %></div>
+                  <div><%= card.signatureLabel %></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card <%= (templateId === 'template-3' || templateId === 'template-4') ? 'vertical' : 'horizontal' %> theme-<%= templateId %>">
+            <div class="header">
+              <div class="title-wrap">
+                <div class="school-name">Card Back</div>
+                <div class="school-meta"><%= card.schoolName %></div>
+              </div>
+            </div>
+            <div class="back">
+              <h4>Student Address</h4>
+              <p><%= card.address %></p>
+              <h4>Emergency Contact</h4>
+              <p>Parent: <%= card.parentContact %></p>
+              <p>School: <%= card.schoolPhone %> | <%= card.schoolEmail %></p>
+              <p><%= card.schoolAddress %></p>
+              <div class="notice">
+                If found, please return this card to the school office.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:flex-end;font-size:10px;color:#64748b;">
+          <span>Card <%= index + 1 %> / <%= cards.length %></span>
+        </div>
+      </div>
+    <% }) %>
+  </body>
+</html>
