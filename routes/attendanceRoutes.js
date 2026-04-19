@@ -6,7 +6,11 @@ const {
   getStaffAttendance,
   getTeacherAttendance,
   updateAttendance,
-  getTodayAttendace
+  getTodayAttendace,
+  getClassAttendanceDashboardSummary,
+  getClassAttendanceDashboardMatrix,
+  getClassAttendanceDashboardTrend,
+  getClassAttendanceDashboardStatusBreakdown,
 } = require("../controllers/attendanceCtrl");
 const { validateUser } = require("../middleware/auth");
 const { allow } = require("../middleware/role");
@@ -46,6 +50,13 @@ router.get("/staff", allow("admin"), getStaffAttendance);
 // Get teacher's attendance (Admin only)
 // Query: ?teacherId=<id>&month=<1-12>&year=<YYYY>
 router.get("/teacher", allow("admin"), getTeacherAttendance);
+
+// ==================== CLASS DASHBOARD ATTENDANCE ====================
+// Class-wise attendance analytics with custom date range
+router.get("/dashboard/summary", allow("admin", "teacher"), getClassAttendanceDashboardSummary);
+router.get("/dashboard/matrix", allow("admin", "teacher"), getClassAttendanceDashboardMatrix);
+router.get("/dashboard/trend", allow("admin", "teacher"), getClassAttendanceDashboardTrend);
+router.get("/dashboard/status-breakdown", allow("admin", "teacher"), getClassAttendanceDashboardStatusBreakdown);
 
 router.get(
   "/get-today/:id",

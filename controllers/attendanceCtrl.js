@@ -1,6 +1,8 @@
 const Attendance = require("../models/attendance");
 const User = require("../models/user");
 const Class = require("../models/class");
+const Student = require("../models/student");
+const Teacher = require("../models/teacher");
 
 // ==================== RESPONSE FORMAT ====================
 const formatResponse = (success, msg, data = null, error = null) => {
@@ -16,6 +18,95 @@ const formatResponse = (success, msg, data = null, error = null) => {
 const checkUserSchool = async (userId, schoolId) => {
   const user = await User.findById(userId).select("school");
   return user && user.school.toString() === schoolId.toString();
+};
+
+const parseDashboardDateRange = (startDateValue, endDateValue) => {
+  const startDate = new Date(startDateValue);
+  const endDate = new Date(endDateValue);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return { error: "Invalid startDate or endDate" };
+  }
+
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
+
+  if (startDate > endDate) {
+    return { error: "startDate cannot be greater than endDate" };
+  }
+
+  return { startDate, endDate };
+};
+
+const formatDateKey = (value) => {
+  const date = new Date(value);
+  return date.toISOString().slice(0, 10);
+};
+
+const getDateKeysInRange = (startDate, endDate) => {
+  const keys = [];
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    keys.push(formatDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return keys;
+};
+
+const ensureClassDashboardAccess = async ({ classId, currentUserId, currentUserRole, currentUserSchool }) => {
+  if (!classId) {
+    return { status: 400, response: formatResponse(false, "classId is required") };
+  }
+
+  const classDoc = await Class.findById(classId)
+    .populate({
+      path: "classTeacher",
+      populate: {
+        path: "user",
+        select: "_id name",
+      },
+    })
+    .lean();
+
+  if (!classDoc) {
+    return { status: 404, response: formatResponse(false, "Class not found") };
+  }
+
+  if (!classDoc?.school || classDoc.school.toString() !== currentUserSchool.toString()) {
+    return { status: 403, response: formatResponse(false, "Class not in your school") };
+  }
+
+  if (currentUserRole === "admin") {
+    return { classDoc };
+  }
+
+  if (currentUserRole !== "teacher") {
+    return { status: 403, response: formatResponse(false, "Unauthorized to view class attendance dashboard") };
+  }
+
+  const teacherProfile = await Teacher.findOne({ user: currentUserId })
+    .select("_id class classTeacher teachSclass")
+    .lean();
+
+  if (!teacherProfile) {
+    return { status: 403, response: formatResponse(false, "Teacher profile not found") };
+  }
+
+  const classIdString = classId.toString();
+  const canAccess =
+    classDoc?.classTeacher?._id?.toString() === teacherProfile._id.toString() ||
+    teacherProfile?.class?.toString() === classIdString ||
+    teacherProfile?.classTeacher?.toString() === classIdString ||
+    (Array.isArray(teacherProfile?.teachSclass) &&
+      teacherProfile.teachSclass.some((entry) => entry?.toString() === classIdString));
+
+  if (!canAccess) {
+    return { status: 403, response: formatResponse(false, "You can only view dashboard for your assigned classes") };
+  }
+
+  return { classDoc };
 };
 
 
@@ -53,6 +144,12 @@ const markAttendance = async (req, res) => {
       );
     }
 
+    const attendanceDate = new Date(date);
+    if (Number.isNaN(attendanceDate.getTime())) {
+      return res.status(400).json(formatResponse(false, "Invalid date value"));
+    }
+    attendanceDate.setHours(0, 0, 0, 0);
+
     // Check if user exists
     const targetUser = await User.findById(userId).populate('role', 'role').populate('school', '_id schoolName');
     if (!targetUser) {
@@ -64,20 +161,23 @@ const markAttendance = async (req, res) => {
 
     const existingAttendance = await Attendance.findOne({
       user: userId,
-      date: new Date(date).setHours(0, 0, 0, 0),
+      date: attendanceDate,
       school: schoolId
     });
-    let createdBy = currentUserId;
-    
+
     if (existingAttendance) {
-     createdBy = existingAttendance.createdBy;
+      return res.status(409).json(
+        formatResponse(false, "Attendance already marked for this user and date", existingAttendance)
+      );
     }
+
+    const createdBy = currentUserId;
 
     if(currentUserRole === 'admin' ){
       const newAttendance = await Attendance.create({
         user: userId,
         status,
-        date: new Date(date).setHours(0, 0, 0, 0),
+        date: attendanceDate,
         remarks: remarks || null,
         school: schoolId,
         class: classId || null,
@@ -89,7 +189,7 @@ const markAttendance = async (req, res) => {
       const newAttendance = await Attendance.create({
         user: userId,
         status,
-        date: new Date(date).setHours(0, 0, 0, 0),
+        date: attendanceDate,
         remarks: remarks || null,
         school: schoolId,
         class: classId || null,
@@ -101,7 +201,7 @@ const markAttendance = async (req, res) => {
       const newAttendance = await Attendance.create({
         user: userId,
         status,
-        date: new Date(date).setHours(0, 0, 0, 0),
+        date: attendanceDate,
         remarks: remarks || null,
         school: schoolId,
         class: classId || null,
@@ -143,6 +243,12 @@ const updateAttendance = async (req, res) => {
       );
     }
 
+    const attendanceDate = new Date(date);
+    if (Number.isNaN(attendanceDate.getTime())) {
+      return res.status(400).json(formatResponse(false, "Invalid date value"));
+    }
+    attendanceDate.setHours(0, 0, 0, 0);
+
     // Check if user exists
     const targetUser = await User.findById(userId).populate('role', 'role').populate('school', '_id schoolName');
     if (!targetUser) {
@@ -154,7 +260,7 @@ const updateAttendance = async (req, res) => {
 
     const existingAttendance = await Attendance.findOne({
       user: userId,
-      date: new Date(date).setHours(0, 0, 0, 0),
+      date: attendanceDate,
       school: schoolId
     });
     
@@ -484,25 +590,442 @@ const getTeacherAttendance = async (req, res) => {
   }
 };
 
+const getClassAttendanceDashboardSummary = async (req, res) => {
+  try {
+    const { classId, startDate: startDateValue, endDate: endDateValue, status = "all" } = req.query;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    const dateRange = parseDashboardDateRange(startDateValue, endDateValue);
+    if (dateRange.error) {
+      return res.status(400).json(formatResponse(false, dateRange.error));
+    }
+
+    const accessResult = await ensureClassDashboardAccess({
+      classId,
+      currentUserId,
+      currentUserRole,
+      currentUserSchool,
+    });
+
+    if (accessResult.response) {
+      return res.status(accessResult.status).json(accessResult.response);
+    }
+
+    const { classDoc } = accessResult;
+    const students = await Student.find({ class: classId }).select("_id user rollNumber status").lean();
+    const userIds = students.map((student) => student.user).filter(Boolean);
+
+    const attendanceFilter = {
+      school: currentUserSchool,
+      date: { $gte: dateRange.startDate, $lte: dateRange.endDate },
+      user: { $in: userIds },
+    };
+
+    if (status && status !== "all") {
+      attendanceFilter.status = status;
+    }
+
+    const attendanceRecords = userIds.length > 0 ? await Attendance.find(attendanceFilter).select("status").lean() : [];
+
+    const totalPresent = attendanceRecords.filter((record) => record.status === "present").length;
+    const totalAbsent = attendanceRecords.filter((record) => record.status === "absent").length;
+    const totalLeave = attendanceRecords.filter((record) => record.status === "leave").length;
+    const totalMarked = attendanceRecords.length;
+    const totalStudents = students.length;
+    const dateKeys = getDateKeysInRange(dateRange.startDate, dateRange.endDate);
+    const expectedRecords = totalStudents * dateKeys.length;
+    const totalNotMarked = Math.max(expectedRecords - totalMarked, 0);
+    const attendanceRate = expectedRecords > 0 ? Number(((totalPresent / expectedRecords) * 100).toFixed(2)) : 0;
+
+    return res.status(200).json(
+      formatResponse(true, "Class attendance dashboard summary fetched successfully", {
+        classInfo: {
+          _id: classDoc._id,
+          name: classDoc.name,
+          grade: classDoc.grade,
+          section: classDoc.section,
+          classTeacher: classDoc?.classTeacher
+            ? {
+                _id: classDoc.classTeacher._id,
+                name: classDoc?.classTeacher?.user?.name || "Unassigned",
+              }
+            : null,
+        },
+        summary: {
+          totalStudents,
+          totalMarked,
+          totalPresent,
+          totalAbsent,
+          totalLeave,
+          totalNotMarked,
+          attendanceRate,
+        },
+        filters: {
+          classId,
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          status,
+        },
+      })
+    );
+  } catch (error) {
+    console.error("Error fetching class attendance dashboard summary:", error);
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching class attendance dashboard summary", null, error.message));
+  }
+};
+
+const getClassAttendanceDashboardMatrix = async (req, res) => {
+  try {
+    const {
+      classId,
+      startDate: startDateValue,
+      endDate: endDateValue,
+      status = "all",
+      studentSearch = "",
+    } = req.query;
+
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    const dateRange = parseDashboardDateRange(startDateValue, endDateValue);
+    if (dateRange.error) {
+      return res.status(400).json(formatResponse(false, dateRange.error));
+    }
+
+    const accessResult = await ensureClassDashboardAccess({
+      classId,
+      currentUserId,
+      currentUserRole,
+      currentUserSchool,
+    });
+
+    if (accessResult.response) {
+      return res.status(accessResult.status).json(accessResult.response);
+    }
+
+    const dateKeys = getDateKeysInRange(dateRange.startDate, dateRange.endDate);
+    const students = await Student.find({ class: classId })
+      .populate({ path: "user", select: "_id name email" })
+      .select("_id user rollNumber status")
+      .lean();
+
+    const userIds = students.map((student) => student?.user?._id || student?.user).filter(Boolean);
+    const attendanceFilter = {
+      school: currentUserSchool,
+      date: { $gte: dateRange.startDate, $lte: dateRange.endDate },
+      user: { $in: userIds },
+    };
+
+    if (status && status !== "all") {
+      attendanceFilter.status = status;
+    }
+
+    const attendanceRecords = userIds.length > 0
+      ? await Attendance.find(attendanceFilter).select("user status date remarks").sort({ date: 1 }).lean()
+      : [];
+
+    const attendanceMap = new Map();
+    attendanceRecords.forEach((record) => {
+      const userKey = record.user.toString();
+      const dayKey = formatDateKey(record.date);
+      if (!attendanceMap.has(userKey)) {
+        attendanceMap.set(userKey, new Map());
+      }
+      attendanceMap.get(userKey).set(dayKey, record);
+    });
+
+    const searchTerm = String(studentSearch || "").trim().toLowerCase();
+    const matrix = students
+      .map((student) => {
+        const userId = (student?.user?._id || student?.user)?.toString();
+        const userAttendance = attendanceMap.get(userId) || new Map();
+
+        const statusByDate = {};
+        let presentCount = 0;
+        let absentCount = 0;
+        let leaveCount = 0;
+
+        dateKeys.forEach((dayKey) => {
+          const dayRecord = userAttendance.get(dayKey);
+          if (!dayRecord) {
+            statusByDate[dayKey] = "not-marked";
+            return;
+          }
+
+          statusByDate[dayKey] = dayRecord.status;
+
+          if (dayRecord.status === "present") presentCount += 1;
+          if (dayRecord.status === "absent") absentCount += 1;
+          if (dayRecord.status === "leave") leaveCount += 1;
+        });
+
+        const totalMarked = presentCount + absentCount + leaveCount;
+        const totalDays = dateKeys.length;
+        const attendancePercentage = totalDays > 0 ? Number(((presentCount / totalDays) * 100).toFixed(2)) : 0;
+
+        return {
+          studentId: student._id,
+          userId,
+          studentName: student?.user?.name || "Unknown",
+          rollNumber: student?.rollNumber || "N/A",
+          studentStatus: student?.status || "active",
+          totals: {
+            totalDays,
+            totalMarked,
+            present: presentCount,
+            absent: absentCount,
+            leave: leaveCount,
+            notMarked: Math.max(totalDays - totalMarked, 0),
+            attendancePercentage,
+          },
+          statusByDate,
+        };
+      })
+      .filter((row) => {
+        if (!searchTerm) return true;
+        return (
+          row.studentName.toLowerCase().includes(searchTerm) ||
+          String(row.rollNumber).toLowerCase().includes(searchTerm)
+        );
+      })
+      .sort((a, b) => String(a.rollNumber).localeCompare(String(b.rollNumber), undefined, { numeric: true }));
+
+    return res.status(200).json(
+      formatResponse(true, "Class attendance matrix fetched successfully", {
+        classInfo: {
+          _id: accessResult.classDoc._id,
+          name: accessResult.classDoc.name,
+          grade: accessResult.classDoc.grade,
+          section: accessResult.classDoc.section,
+        },
+        dateKeys,
+        matrix,
+        filters: {
+          classId,
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          status,
+          studentSearch,
+        },
+      })
+    );
+  } catch (error) {
+    console.error("Error fetching class attendance dashboard matrix:", error);
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching class attendance dashboard matrix", null, error.message));
+  }
+};
+
+const getClassAttendanceDashboardTrend = async (req, res) => {
+  try {
+    const { classId, startDate: startDateValue, endDate: endDateValue } = req.query;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    const dateRange = parseDashboardDateRange(startDateValue, endDateValue);
+    if (dateRange.error) {
+      return res.status(400).json(formatResponse(false, dateRange.error));
+    }
+
+    const accessResult = await ensureClassDashboardAccess({
+      classId,
+      currentUserId,
+      currentUserRole,
+      currentUserSchool,
+    });
+
+    if (accessResult.response) {
+      return res.status(accessResult.status).json(accessResult.response);
+    }
+
+    const students = await Student.find({ class: classId }).select("user").lean();
+    const userIds = students.map((student) => student.user).filter(Boolean);
+    const dateKeys = getDateKeysInRange(dateRange.startDate, dateRange.endDate);
+
+    const attendanceRecords = userIds.length > 0
+      ? await Attendance.find({
+          school: currentUserSchool,
+          user: { $in: userIds },
+          date: { $gte: dateRange.startDate, $lte: dateRange.endDate },
+        })
+          .select("status date")
+          .lean()
+      : [];
+
+    const trendMap = new Map(
+      dateKeys.map((dateKey) => [
+        dateKey,
+        {
+          date: dateKey,
+          present: 0,
+          absent: 0,
+          leave: 0,
+          marked: 0,
+          notMarked: students.length,
+          attendanceRate: 0,
+        },
+      ])
+    );
+
+    attendanceRecords.forEach((record) => {
+      const dayKey = formatDateKey(record.date);
+      const entry = trendMap.get(dayKey);
+      if (!entry) return;
+
+      if (record.status === "present") entry.present += 1;
+      if (record.status === "absent") entry.absent += 1;
+      if (record.status === "leave") entry.leave += 1;
+      entry.marked += 1;
+      entry.notMarked = Math.max(students.length - entry.marked, 0);
+      entry.attendanceRate = students.length > 0 ? Number(((entry.present / students.length) * 100).toFixed(2)) : 0;
+    });
+
+    return res.status(200).json(
+      formatResponse(true, "Class attendance trend fetched successfully", {
+        classInfo: {
+          _id: accessResult.classDoc._id,
+          name: accessResult.classDoc.name,
+          grade: accessResult.classDoc.grade,
+          section: accessResult.classDoc.section,
+        },
+        trend: Array.from(trendMap.values()),
+        filters: {
+          classId,
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+        },
+      })
+    );
+  } catch (error) {
+    console.error("Error fetching class attendance dashboard trend:", error);
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching class attendance dashboard trend", null, error.message));
+  }
+};
+
+const getClassAttendanceDashboardStatusBreakdown = async (req, res) => {
+  try {
+    const { classId, startDate: startDateValue, endDate: endDateValue } = req.query;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    const dateRange = parseDashboardDateRange(startDateValue, endDateValue);
+    if (dateRange.error) {
+      return res.status(400).json(formatResponse(false, dateRange.error));
+    }
+
+    const accessResult = await ensureClassDashboardAccess({
+      classId,
+      currentUserId,
+      currentUserRole,
+      currentUserSchool,
+    });
+
+    if (accessResult.response) {
+      return res.status(accessResult.status).json(accessResult.response);
+    }
+
+    const students = await Student.find({ class: classId }).select("user").lean();
+    const userIds = students.map((student) => student.user).filter(Boolean);
+    const dateKeys = getDateKeysInRange(dateRange.startDate, dateRange.endDate);
+    const totalExpected = students.length * dateKeys.length;
+
+    const attendanceRecords = userIds.length > 0
+      ? await Attendance.find({
+          school: currentUserSchool,
+          user: { $in: userIds },
+          date: { $gte: dateRange.startDate, $lte: dateRange.endDate },
+        })
+          .select("status")
+          .lean()
+      : [];
+
+    const present = attendanceRecords.filter((record) => record.status === "present").length;
+    const absent = attendanceRecords.filter((record) => record.status === "absent").length;
+    const leave = attendanceRecords.filter((record) => record.status === "leave").length;
+    const marked = attendanceRecords.length;
+    const notMarked = Math.max(totalExpected - marked, 0);
+
+    const asPercentage = (value) => (totalExpected > 0 ? Number(((value / totalExpected) * 100).toFixed(2)) : 0);
+
+    return res.status(200).json(
+      formatResponse(true, "Class attendance status breakdown fetched successfully", {
+        classInfo: {
+          _id: accessResult.classDoc._id,
+          name: accessResult.classDoc.name,
+          grade: accessResult.classDoc.grade,
+          section: accessResult.classDoc.section,
+        },
+        totals: {
+          expected: totalExpected,
+          marked,
+          present,
+          absent,
+          leave,
+          notMarked,
+        },
+        percentages: {
+          present: asPercentage(present),
+          absent: asPercentage(absent),
+          leave: asPercentage(leave),
+          notMarked: asPercentage(notMarked),
+        },
+        filters: {
+          classId,
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+        },
+      })
+    );
+  } catch (error) {
+    console.error("Error fetching class attendance status breakdown:", error);
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching class attendance status breakdown", null, error.message));
+  }
+};
+
 const getTodayAttendace = async (req, res) => {
   try {
     const targetUser = req.params.id;
-    // console.log("Target user for today's attendance: ", targetUser);
     const currentUserId = req.user._id;
     const currentUserRole = req.user.role.role;
-    // console.log("Current user role: ", currentUserRole);
     const currentUserSchool = req.user.school._id;
-    const today = new Date();
-    const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-    const endOfDay = new Date(today.setHours(23, 59, 59, 999));
 
+    // Verify target user exists
     const user = await User.findById(targetUser).populate('role', 'role');
-    // console.log("User for today's attendance: ", user.name, " with role ", user.role.role);
-    if(!user) {
+    if (!user) {
       return res.status(404).json(formatResponse(false, "User not found"));
     }
 
-    // Build filter
+    // Check authorization
+    const isAdmin = currentUserRole === "admin";
+    const isTeacher = currentUserRole === "teacher";
+    const isSameUser = user._id.toString() === currentUserId.toString();
+
+    // Authorization logic:
+    // - Admin can view anyone
+    // - Teacher can view students and themselves
+    // - Others can only view themselves
+    if (!isAdmin && !isSameUser && !(isTeacher && user.role.role === 'student')) {
+      return res.status(403).json(formatResponse(false, "You do not have permission to view this attendance"));
+    }
+
+    // Calculate today's date range correctly
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+    // Build filter with correct date range
     const filter = {
       user: targetUser,
       school: currentUserSchool,
@@ -511,111 +1034,30 @@ const getTodayAttendace = async (req, res) => {
         $lte: endOfDay,
       },
     };
+    // console.log("Fetching today's attendance with filter:", filter);
 
-    if(currentUserRole === "admin" || currentUserRole === "teacher") {
-      if(currentUserRole === 'admin') {
-        const attendanceRecords = await Attendance.find(filter)
-          .populate("user", "_id name email")
-          .sort({ date: -1 });
+    // Fetch attendance records
+    const attendanceRecords = await Attendance.find(filter)
+      .populate("user", "_id name email")
+      .sort({ date: -1 });
 
-          // console.log("Attendance records for today: ", attendanceRecords);
+    // Calculate summary
+    // console.log("Today's attendance records:", attendanceRecords);
+    const summary = {
+      total: attendanceRecords.length,
+      present: attendanceRecords.filter((a) => a.status === "present").length,
+      absent: attendanceRecords.filter((a) => a.status === "absent").length,
+      leave: attendanceRecords.filter((a) => a.status === "leave").length,
+      notMarked: attendanceRecords.length === 0 ? 1 : 0,
+    };
 
-        if (attendanceRecords.length === 0) {
-          return res.status(404).json(formatResponse(false, "No attendance records found for today"));
-        }
-        
-        const summary = {
-          total: attendanceRecords.length,
-          present: attendanceRecords.filter((a) => a.status === "present").length,
-          absent: attendanceRecords.filter((a) => a.status === "absent").length,
-          leave: attendanceRecords.filter((a) => a.status === "leave").length,
-        };
-
-        return res.status(200).json(
-          formatResponse(true, "Today's attendance records fetched successfully", {
-            attendance: attendanceRecords,
-            summary,
-            filters: { startOfDay, endOfDay },
-          })
-        );
-      } else if((user.role.role === 'student') && currentUserRole === 'teacher') {
-        const attendanceRecords = await Attendance.find(filter)
-          .populate("user", "_id name email")
-          .sort({ date: -1 });
-
-        if (attendanceRecords.length === 0) {
-          return res.status(404).json(formatResponse(false, "No attendance records found for today"));
-        }
-        
-        const summary = {
-          total: attendanceRecords.length,
-          present: attendanceRecords.filter((a) => a.status === "present").length,
-          absent: attendanceRecords.filter((a) => a.status === "absent").length,
-          leave: attendanceRecords.filter((a) => a.status === "leave").length,
-        };
-
-        return res.status(200).json(
-          formatResponse(true, "Today's attendance records fetched successfully", {
-            attendance: attendanceRecords,
-            summary,
-            filters: { startOfDay, endOfDay },
-          })
-        );
-      } else if(user._id.toString() === currentUserId.toString()) {
-        const attendanceRecords = await Attendance.find(filter)
-          .populate("user", "_id name email")
-          .sort({ date: -1 });
-          // console.log("Attendance records for today: ", attendanceRecords);
-          
-        if (attendanceRecords.length === 0) {
-          return res.status(404).json(formatResponse(false, "No attendance records found for today"));
-        }
-        
-        const summary = {
-          total: attendanceRecords.length,
-          present: attendanceRecords.filter((a) => a.status === "present").length,
-          absent: attendanceRecords.filter((a) => a.status === "absent").length,
-          leave: attendanceRecords.filter((a) => a.status === "leave").length,
-        };
-
-        return res.status(200).json(
-          formatResponse(true, "Today's attendance records fetched successfully", {
-            attendance: attendanceRecords,
-            summary,
-            filters: { startOfDay, endOfDay },
-          })
-        );
-      } else {
-        return res.status(403).json(formatResponse(false, "Your role is not suitable to get attendance"));
-      }
-    } else {
-      if(user._id.toString() !== currentUserId.toString()) {
-        return res.status(403).json(formatResponse(false, "You can only view your own attendance"));
-      }
-      
-      const attendanceRecords = await Attendance.find(filter)
-        .populate("user", "_id name email")
-        .sort({ date: -1 });
-
-      if (attendanceRecords.length === 0) {
-        return res.status(404).json(formatResponse(false, "No attendance records found for today"));
-      }
-      
-      const summary = {
-        total: attendanceRecords.length,
-        present: attendanceRecords.filter((a) => a.status === "present").length,
-        absent: attendanceRecords.filter((a) => a.status === "absent").length,
-        leave: attendanceRecords.filter((a) => a.status === "leave").length,
-      };
-
-      return res.status(200).json(
-        formatResponse(true, "Today's attendance records fetched successfully", {
-          attendance: attendanceRecords,
-          summary,
-          filters: { startOfDay, endOfDay },
-        })
-      );
-    }
+    return res.status(200).json(
+      formatResponse(true, "Today's attendance records fetched successfully", {
+        attendance: attendanceRecords,
+        summary,
+        filters: { startOfDay, endOfDay },
+      })
+    );
   } catch (error) {
     console.error("Error fetching today's attendance:", error);
     return res.status(500).json(formatResponse(false, "Error fetching today's attendance", null, error.message));
@@ -628,6 +1070,10 @@ module.exports = {
   getClassAttendance,
   getStaffAttendance,
   getTeacherAttendance,
+  getClassAttendanceDashboardSummary,
+  getClassAttendanceDashboardMatrix,
+  getClassAttendanceDashboardTrend,
+  getClassAttendanceDashboardStatusBreakdown,
   getTodayAttendace,
   updateAttendance
 };
