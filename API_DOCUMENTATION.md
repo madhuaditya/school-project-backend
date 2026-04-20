@@ -28,6 +28,7 @@
 18. [Fee Management APIs](#fee-management-apis)
 19. [Salary Management APIs](#salary-management-apis)
 20. [Alert APIs](#alert-apis)
+21. [Leave APIs](#leave-apis)
 
 ---
 
@@ -2019,6 +2020,27 @@ Authorization: Bearer <accessToken>
 | Method | Endpoint | Authorization | Request Type | Response Type |
 |---|---|---|---|---|
 | GET | `/teacher/all` | Admin, Teacher, Student, Staff | Headers: Bearer token | JSON (`success`, `msg`, `data[]`) |
+
+### Leave APIs
+
+All leave APIs are mounted at: `/leave`
+
+| Method | Endpoint | Authorization | Request Type | Response Type |
+|---|---|---|---|---|
+| POST | `/leave/apply` | Admin, Teacher, Staff, Student, Accountant, Driver | Body: `leaveType`, `startDate`, `endDate`, `purpose?` | JSON (`success`, `msg`, `data`) |
+| GET | `/leave/my` | Admin, Teacher, Staff, Student, Accountant, Driver | Query: `page`, `size`, `month?`, `year?`, `status?` | JSON (`success`, `msg`, `data.leaves[]`) |
+| DELETE | `/leave/my/:id` | Admin, Teacher, Staff, Student, Accountant, Driver | Params: `id` | JSON (`success`, `msg`) |
+| GET | `/leave/admin` | Admin | Query: `page`, `size`, `month?`, `year?`, `status?` | JSON (`success`, `msg`, `data.leaves[]`) |
+| PATCH | `/leave/admin/:id/review` | Admin | Params: `id`; Body: `action` (`approved` or `declined`), `reviewRemark?` | JSON (`success`, `msg`, `data`) |
+
+#### Leave Workflow Rules
+
+1. Any authenticated user can apply for their own leave only.
+2. Leave lifecycle: `pending` -> `approved` or `declined`.
+3. User can delete leave only while status is `pending`.
+4. Admin cannot approve or decline their own leave request.
+5. On approval, attendance is auto-marked as `leave` for the full date range.
+6. Existing attendance records in that range are overwritten to `leave` as required.
 
 ### System Utility APIs
 

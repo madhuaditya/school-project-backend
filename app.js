@@ -23,6 +23,7 @@ const alertRoutes = require('./routes/alertRoutes');
 const sanitizeResponse = require("./middleware/sanitizeResponse")
 const profileRoutes = require('./routes/profileRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const leaveRoutes = require('./routes/leaveRoutes');
 const dotenv = require("dotenv")
 dotenv.config();
 const app = express();
@@ -63,6 +64,7 @@ app.use('/api/alert', alertRoutes);
 // app.use(sanitizeResponse)
 app.use('/api/profile', profileRoutes);
 app.use('/api/subscription', subscriptionRoutes);
+app.use('/api/leave', leaveRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });
