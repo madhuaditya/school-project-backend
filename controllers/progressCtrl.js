@@ -1285,11 +1285,7 @@ const generateStyledReport = async (req, res) => {
       result
     );
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    });
+    const browser = await puppeteer.launch();
     const page = await browser.newPage();
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
@@ -1333,11 +1329,7 @@ const generateCBSEReport = async (req, res) => {
       data
     );
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    });
+    const browser = await puppeteer.launch();
     const page = await browser.newPage();
 
     await page.setContent(html, { waitUntil: "load" });
