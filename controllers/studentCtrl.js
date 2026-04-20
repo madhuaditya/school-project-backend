@@ -118,7 +118,7 @@ const renderIdCardsPdf = async ({ cards, templateId }) => {
   });
   const page = await browser.newPage();
 
-  await page.setContent(html, { waitUntil: 'networkidle0' });
+  await page.setContent(html, { waitUntil: 'load' });
 
   const pdfBuffer = await page.pdf({
     format: 'A4',
@@ -505,6 +505,7 @@ const generateSingleIdCardPdf = async (req, res) => {
 
     return res.send(pdfBuffer);
   } catch (error) {
+    console.log('Error generating single ID card PDF:', error);
     return res.status(500).json(formatResponse(false, 'Error generating student ID card', null, error.message));
   }
 };
@@ -580,6 +581,7 @@ const generateBulkIdCardPdf = async (req, res) => {
 
     return res.send(pdfBuffer);
   } catch (error) {
+    console.log('Error generating bulk ID cards PDF:', error);
     return res.status(500).json(formatResponse(false, 'Error generating bulk ID cards', null, error.message));
   }
 };
