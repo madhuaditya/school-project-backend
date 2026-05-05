@@ -10,8 +10,11 @@ const {
   getSubjectPerformance,
   generateStudentReport,
   generateAdvancedReport,
+  generateAdvancedReportHtml,
   generateStyledReport,
+  generateStyledReportHtml,
   generateCBSEReport,
+  generateCBSEReportHtml,
   getStudentResultByYear,
   getStudentDashboardAnalytics,
   getClassDashboardAnalytics,
@@ -114,15 +117,33 @@ router.get(
 );
 
 router.get(
+  "/advanced-report-html/:studentId",
+  allow("admin", "teacher"),
+  generateAdvancedReportHtml,
+);
+
+router.get(
   "/report-card/:studentId",
   allow("admin", "teacher"),
   generateStyledReport,
 );
 
 router.get(
+  "/report-card-html/:studentId",
+  allow("admin", "teacher"),
+  generateStyledReportHtml,
+);
+
+router.get(
   "/report-card-cbsc/:studentId",
   allow("admin", "teacher"),
   generateCBSEReport,
+);
+
+router.get(
+  "/report-card-cbsc-html/:studentId",
+  allow("admin", "teacher"),
+  generateCBSEReportHtml,
 );
 
 module.exports = router;

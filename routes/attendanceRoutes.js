@@ -11,6 +11,10 @@ const {
   getClassAttendanceDashboardMatrix,
   getClassAttendanceDashboardTrend,
   getClassAttendanceDashboardStatusBreakdown,
+  getTodayClassAttendance,
+  getTodayAttendanceRole,
+  bulkMarkAttendance,
+  getClassAttendanceCSV
 } = require("../controllers/attendanceCtrl");
 const { validateUser } = require("../middleware/auth");
 const { allow } = require("../middleware/role");
@@ -57,6 +61,22 @@ router.get("/dashboard/summary", allow("admin", "teacher"), getClassAttendanceDa
 router.get("/dashboard/matrix", allow("admin", "teacher"), getClassAttendanceDashboardMatrix);
 router.get("/dashboard/trend", allow("admin", "teacher"), getClassAttendanceDashboardTrend);
 router.get("/dashboard/status-breakdown", allow("admin", "teacher"), getClassAttendanceDashboardStatusBreakdown);
+
+// ==================== TODAY CLASS ATTENDANCE ====================
+// Get today's attendance for all students in a class or role
+// Path: /today/role/:role
+router.get("/today/role/:role", allow("admin"), getTodayAttendanceRole);
+router.get("/today/class/:classId", allow("admin", "teacher"), getTodayClassAttendance);
+
+// ==================== BULK MARK ATTENDANCE ====================
+// Bulk mark/update attendance for multiple students
+// Body: { records: [{userId, status, remarks?, classId?}, ...], date? }
+router.post("/bulk-mark", allow("admin", "teacher"), bulkMarkAttendance);
+
+// ==================== CSV EXPORT ====================
+// Export class attendance as CSV file for date range
+// Query: ?classId=<id>&startDate=<ISO>&endDate=<ISO>
+router.get("/export/class", allow("admin", "teacher"), getClassAttendanceCSV);
 
 router.get(
   "/get-today/:id",

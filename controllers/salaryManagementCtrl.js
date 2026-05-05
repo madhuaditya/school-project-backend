@@ -329,6 +329,8 @@ const deleteSalaryPayment = async (req, res) => {
 const getStaffSalaryByMonth = async (req, res) => {
   try {
     const { staffId, month, year } = req.params;
+    const requesterRole = req.user?.role?.role || req.user?.role;
+    const requesterId = req.user?._id?.toString();
 
     if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
       return res.status(400).json(formatResponse(false, "Valid staffId is required"));
@@ -343,6 +345,10 @@ const getStaffSalaryByMonth = async (req, res) => {
 
     if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
       return res.status(400).json(formatResponse(false, "Valid year is required"));
+    }
+
+    if (requesterRole !== 'admin' && requesterId !== String(staffId)) {
+      return res.status(403).json(formatResponse(false, 'You can only access your own salary summary'));
     }
 
     const staffContext = await getStaffContext(req.user.school._id, staffId);
@@ -368,12 +374,18 @@ const getStaffSalaryByMonth = async (req, res) => {
 const getStaffPaymentHistory = async (req, res) => {
   try {
     const { staffId } = req.params;
+    const requesterRole = req.user?.role?.role || req.user?.role;
+    const requesterId = req.user?._id?.toString();
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
 
     if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
       return res.status(400).json(formatResponse(false, "Valid staffId is required"));
+    }
+
+    if (requesterRole !== 'admin' && requesterId !== String(staffId)) {
+      return res.status(403).json(formatResponse(false, 'You can only access your own salary history'));
     }
 
     const staffContext = await getStaffContext(req.user.school._id, staffId);

@@ -61,6 +61,7 @@ const buildIdCardPayload = ({ student, school, schoolOverrides = {}, studentOver
     motherName: studentOverrides.motherName || student.motherName || 'N/A',
     classLabel: studentOverrides.classLabel || buildClassLabel(classDoc),
     rollNumber: studentOverrides.rollNumber || student.rollNumber || 'N/A',
+    gender: studentOverrides.gender || user.gender || student.gender || 'N/A',
     bloodGroup: studentOverrides.bloodGroup || student.bloodGroup || 'N/A',
     dateOfBirth: studentOverrides.dateOfBirth || (student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString('en-GB') : 'N/A'),
     parentContact: studentOverrides.parentContact || student.parentContact || user.phone || 'N/A',
@@ -86,7 +87,7 @@ const buildIdCardPayload = ({ student, school, schoolOverrides = {}, studentOver
   return payload;
 };
 
-const renderIdCardsPdf = async ({ cards, templateId }) => {
+const generateIdCardsHtml = async ({ cards, templateId }) => {
   const cardsWithQr = await Promise.all(cards.map(async (card) => {
     let qrCodeDataUrl = null;
 
@@ -106,10 +107,14 @@ const renderIdCardsPdf = async ({ cards, templateId }) => {
     };
   }));
 
-  const html = await ejs.renderFile(
+  return ejs.renderFile(
     path.join(__dirname, '../templates/studentIdCards.ejs'),
     { cards: cardsWithQr, templateId }
   );
+};
+
+const renderIdCardsPdf = async ({ cards, templateId }) => {
+  const html = await generateIdCardsHtml({ cards, templateId });
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -134,6 +139,127 @@ const renderIdCardsPdf = async ({ cards, templateId }) => {
   await browser.close();
 
   return pdfBuffer;
+};
+
+const generateSingleIdCardHtml = async (req, res) => {
+  try {
+    const schoolId = getSchoolIdFromUser(req.user);
+    const {
+      studentId,
+      templateId = 'template-1',
+      schoolOverrides = {},
+      studentOverrides = {},
+    } = req.body;
+
+    if (!studentId) return res.status(400).json(formatResponse(false, 'studentId is required'));
+
+    const [school, student] = await Promise.all([
+      School.findById(schoolId).select('schoolName name address phone email idCardLogo image idCardSettings').lean(),
+      Student.findById(studentId)
+        .populate({ path: 'user', select: 'name image phone address school gender username' })
+        .populate({ path: 'class', select: 'name section grade' }),
+    ]);
+
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+    if (!school) return res.status(404).json(formatResponse(false, 'School not found'));
+
+    if (!student.user?.school || student.user.school.toString() !== schoolId) {
+      return res.status(403).json(formatResponse(false, 'Unauthorized school access'));
+    }
+
+    const cardData = buildIdCardPayload({
+      student,
+      school,
+      schoolOverrides,
+      studentOverrides,
+    });
+
+    const html = await generateIdCardsHtml({ cards: [cardData], templateId });
+
+    return res.status(200).json(formatResponse(true, 'Student ID card HTML generated successfully', {
+      html,
+      templateId,
+      cards: [cardData],
+    }));
+  } catch (error) {
+    console.log('Error generating single ID card HTML:', error);
+    return res.status(500).json(formatResponse(false, 'Error generating student ID card HTML', null, error.message));
+  }
+};
+
+const generateBulkIdCardHtml = async (req, res) => {
+  try {
+    const schoolId = getSchoolIdFromUser(req.user);
+    const {
+      templateId = 'template-1',
+      schoolOverrides = {},
+      studentIds = [],
+      classId,
+      includeWholeClass = false,
+      overridesByStudent = {},
+    } = req.body;
+
+    const school = await School.findById(schoolId).select('name address phone email idCardLogo image idCardSettings').lean();
+
+    if (school && !school.schoolName && school.name) {
+      school.schoolName = school.name;
+    }
+
+    if (!school) return res.status(404).json(formatResponse(false, 'School not found'));
+
+    let finalStudentIds = Array.isArray(studentIds) ? [...new Set(studentIds.filter(Boolean))] : [];
+
+    if (includeWholeClass) {
+      if (!classId) return res.status(400).json(formatResponse(false, 'classId is required for class bulk generation'));
+
+      const classDoc = await Class.findById(classId).select('_id school').lean();
+      if (!classDoc) return res.status(404).json(formatResponse(false, 'Class not found'));
+      if (classDoc.school.toString() !== schoolId) {
+        return res.status(403).json(formatResponse(false, 'Unauthorized school access'));
+      }
+
+      const classStudents = await Student.find({ class: classId }).select('_id').lean();
+      finalStudentIds = classStudents.map((item) => item._id.toString());
+    }
+
+    if (!finalStudentIds.length) {
+      return res.status(400).json(formatResponse(false, 'No students selected for bulk generation'));
+    }
+
+    if (finalStudentIds.length > 300) {
+      return res.status(400).json(formatResponse(false, 'Bulk generation limit is 300 students per request'));
+    }
+
+    const students = await Student.find({ _id: { $in: finalStudentIds } })
+      .populate({ path: 'user', select: 'name image phone address school gender username' })
+      .populate({ path: 'class', select: 'name section grade' });
+
+    const authorizedStudents = students.filter((student) => student?.user?.school?.toString() === schoolId);
+
+    if (!authorizedStudents.length) {
+      return res.status(404).json(formatResponse(false, 'No valid students found in your school'));
+    }
+
+    const cards = authorizedStudents.map((student) =>
+      buildIdCardPayload({
+        student,
+        school,
+        schoolOverrides,
+        studentOverrides: overridesByStudent?.[student._id.toString()] || {},
+      })
+    );
+
+    const html = await generateIdCardsHtml({ cards, templateId });
+
+    return res.status(200).json(formatResponse(true, 'Bulk ID card HTML generated successfully', {
+      html,
+      templateId,
+      cards,
+    }));
+  } catch (error) {
+    console.log('Error generating bulk ID card HTML:', error);
+    return res.status(500).json(formatResponse(false, 'Error generating bulk ID card HTML', null, error.message));
+  }
 };
 
 // ================= ADD STUDENT TO CLASS =================
@@ -360,8 +486,8 @@ const getStudentsForIdCards = async (req, res) => {
     if (classDoc.school.toString() !== schoolId) return res.status(403).json(formatResponse(false, 'Unauthorized school access'));
 
     const students = await Student.find({ class: classId })
-      .populate({ path: 'user', select: 'name image phone school address city state pinCode' })
-      .select('_id admissionNo rollNumber fatherName motherName dateOfBirth parentContact address bloodGroup class idCardPhoto')
+      .populate({ path: 'user', select: 'name image phone school address city state pinCode gender username email' })
+      .select('_id admissionNo rollNumber fatherName motherName dateOfBirth parentContact address bloodGroup class idCardPhoto gender')
       .sort({ rollNumber: 1, createdAt: 1 })
       .lean();
 
@@ -377,6 +503,7 @@ const getStudentsForIdCards = async (req, res) => {
         dateOfBirth: student.dateOfBirth || null,
         parentContact: student.parentContact || student.user?.phone || '',
         address: student.address || student.user?.address || '',
+        gender: student.gender || student.user?.gender || '',
         bloodGroup: student.bloodGroup || '',
         photo: student.idCardPhoto || student.user?.image || null,
       }));
@@ -598,4 +725,6 @@ module.exports = {
   uploadStudentIdCardPhoto,
   generateSingleIdCardPdf,
   generateBulkIdCardPdf,
+  generateSingleIdCardHtml,
+  generateBulkIdCardHtml,
 };

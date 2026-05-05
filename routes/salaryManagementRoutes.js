@@ -14,15 +14,14 @@ const { checkSubscriptionActive } = require("../middleware/subscriptionCheck");
 const router = express.Router();
 
 router.use(validateUser, checkSubscriptionActive);
-router.use(allow("admin"));
 
-router.post("/payment/create", recordSalaryPayment);
-router.get("/payment/:id", getSalaryPaymentById);
-router.delete("/payment/:id", deleteSalaryPayment);
+router.post("/payment/create", allow("admin"), recordSalaryPayment);
+router.get("/payment/:id", allow("admin"), getSalaryPaymentById);
+router.delete("/payment/:id", allow("admin"), deleteSalaryPayment);
 
-router.get("/summary/staff/:staffId/month/:month/:year", getStaffSalaryByMonth);
-router.get("/summary/staff/:staffId/history", getStaffPaymentHistory);
+router.get("/summary/staff/:staffId/month/:month/:year", allow("admin", "teacher", "staff"), getStaffSalaryByMonth);
+router.get("/summary/staff/:staffId/history", allow("admin", "teacher", "staff"), getStaffPaymentHistory);
 
-router.get("/analytics/matrix-month", getSalaryMatrixByMonth);
+router.get("/analytics/matrix-month", allow("admin"), getSalaryMatrixByMonth);
 
 module.exports = router;

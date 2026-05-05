@@ -11,6 +11,8 @@ const {
   uploadStudentIdCardPhoto,
   generateSingleIdCardPdf,
   generateBulkIdCardPdf,
+  generateSingleIdCardHtml,
+  generateBulkIdCardHtml,
 } = require("../controllers/studentCtrl");
 
 const { validateUser } = require("../middleware/auth");
@@ -34,6 +36,10 @@ router.post('/id-card/upload-student-photo/:studentId', allow('admin', 'teacher'
 // ID CARD PDF GENERATION
 router.post('/id-card/generate-single', allow('admin', 'teacher'), generateSingleIdCardPdf);
 router.post('/id-card/generate-bulk', allow('admin', 'teacher'), generateBulkIdCardPdf);
+
+// ID CARD HTML GENERATION
+router.post('/id-card/generate-single-html', allow('admin', 'teacher'), generateSingleIdCardHtml);
+router.post('/id-card/generate-bulk-html', allow('admin', 'teacher'), generateBulkIdCardHtml);
 
 // ADD STUDENT TO CLASS
 router.post("/add-to-class", allow("admin", "teacher"), addStudentToClass);

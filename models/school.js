@@ -42,6 +42,10 @@ const schoolSchema = new mongoose.Schema({
     image: {
         type: String,
     },
+    slug: {
+    type: String,
+    unique: true,
+    },
     idCardLogo: {
         type: String,
     },

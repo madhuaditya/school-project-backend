@@ -65,6 +65,11 @@ const progressSchema = new mongoose.Schema({
     required: true
   },
 
+  exam: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Exam', // Links to Exam structure (optional, for flexible tracking)
+  },
+
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

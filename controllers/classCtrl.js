@@ -2,6 +2,7 @@ const Class = require('../models/class');
 const Student = require('../models/student');
 const Teacher = require('../models/teacher');
 const User = require('../models/user');
+const Subject = require('../models/subject');
 
 // ==================== RESPONSE FORMAT ====================
 const formatResponse = (success, msg, data = null, error = null) => {
@@ -257,6 +258,125 @@ const getClassStudents = async (req, res) => {
 };
 
 
+// ================= GET COMPREHENSIVE CLASS INFO =================
+/**
+ * Get all class information including class details, teacher info, students, and subjects
+ * Admin and Teacher only
+ */
+const getClassInfo = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const currentUserSchool = req.user.school._id;
+
+    if (!classId) {
+      return res.status(400).json(formatResponse(false, "classId is required in path"));
+    }
+
+    // Fetch class with class teacher
+    const cls = await Class.findById(classId)
+      .populate({
+        path: "classTeacher",
+        populate: { path: "user", select: "_id name email phone image username" }
+      })
+      .populate("subjects")
+      .lean();
+
+    if (!cls) {
+      return res.status(404).json(formatResponse(false, "Class not found"));
+    }
+
+    // School isolation check
+    if (cls.school.toString() !== currentUserSchool.toString()) {
+      return res.status(403).json(formatResponse(false, "Class not in your school"));
+    }
+
+    // Fetch all students in class
+    const students = await Student.find({ class: classId })
+      .populate({ path: "user", select: "_id name email phone image username" })
+      .select("_id user rollNumber studentId fatherName motherName status")
+      .lean();
+
+    // Fetch all subjects for the class with teacher info
+    const subjects = await Subject.find({ _id: { $in: cls.subjects } })
+      .populate({
+        path: "teacher",
+        populate: { path: "user", select: "_id name email phone image username" }
+      })
+      .select("_id name code maxMarks teacher")
+      .lean();
+
+    // Build response: class teacher basic info
+    const classTeacherInfo = cls.classTeacher
+      ? {
+          _id: cls.classTeacher._id,
+          name: cls.classTeacher.user?.name || null,
+          email: cls.classTeacher.user?.email || null,
+          phone: cls.classTeacher.user?.phone || null,
+          image: cls.classTeacher.user?.image || null,
+          username: cls.classTeacher.user?.username || null
+        }
+      : null;
+
+    // Build response: students with requested fields only
+    const studentList = students.map(student => ({
+      _id: student._id,
+      studentId: student.studentId,
+      rollNumber: student.rollNumber,
+      name: student.user?.name || null,
+      email: student.user?.email || null,
+      phone: student.user?.phone || null,
+      image: student.user?.image || null,
+      username: student.user?.username || null,
+      fatherName: student.fatherName || null,
+      motherName: student.motherName || null
+    })).sort((a, b) => {
+      const aRoll = String(a.rollNumber).padStart(10, '0');
+      const bRoll = String(b.rollNumber).padStart(10, '0');
+      return aRoll.localeCompare(bRoll, undefined, { numeric: true });
+    });
+
+    // Build response: subjects with subject teacher basic info
+    const subjectList = subjects.map(subject => ({
+      _id: subject._id,
+      name: subject.name,
+      code: subject.code,
+      maxMarks: subject.maxMarks,
+      teacher: subject.teacher
+        ? {
+            _id: subject.teacher._id,
+            name: subject.teacher.user?.name || null,
+            email: subject.teacher.user?.email || null,
+            phone: subject.teacher.user?.phone || null,
+            image: subject.teacher.user?.image || null,
+            username: subject.teacher.user?.username || null
+          }
+        : null
+    }));
+
+    // Build final response
+    const response = {
+      _id: cls._id,
+      name: cls.name,
+      grade: cls.grade,
+      section: cls.section,
+      capacity: cls.capacity,
+      room: cls.room,
+      classTeacher: classTeacherInfo,
+      studentCount: students.length,
+      students: studentList,
+      subjectCount: subjects.length,
+      subjects: subjectList,
+      createdAt: cls.createdAt,
+      updatedAt: cls.updatedAt
+    };
+
+    return res.status(200).json(formatResponse(true, "Class information fetched successfully", response));
+  } catch (e) {
+    console.error("Error fetching class info:", e);
+    return res.status(500).json(formatResponse(false, "Error fetching class info", null, e.message));
+  }
+};
+
 module.exports = {
   createClass,
   assignClassTeacher,
@@ -264,5 +384,6 @@ module.exports = {
   removeStudent,
   getClassById,
   getClasses,
-  getClassStudents
+  getClassStudents,
+  getClassInfo
 };

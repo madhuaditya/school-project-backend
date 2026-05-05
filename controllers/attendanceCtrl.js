@@ -3,6 +3,7 @@ const User = require("../models/user");
 const Class = require("../models/class");
 const Student = require("../models/student");
 const Teacher = require("../models/teacher");
+const Role    = require("../models/role")
 
 // ==================== RESPONSE FORMAT ====================
 const formatResponse = (success, msg, data = null, error = null) => {
@@ -1064,6 +1065,533 @@ const getTodayAttendace = async (req, res) => {
   }
 };
 
+// ==================== GET TODAY ATTENDANCE FOR CLASS ====================
+/**
+ * Get today's attendance for all students in a class
+ * Each student appears in result; unmarked students have status "not-marked"
+ * Admin: any class in school
+ * Teacher: classes they are assigned to teach
+ */
+const getTodayClassAttendance = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    if (!classId) {
+      return res.status(400).json(formatResponse(false, "classId is required in path"));
+    }
+
+    // Verify class exists and belongs to school
+    const classDoc = await Class.findById(classId)
+      .populate({
+        path: "classTeacher",
+        populate: { path: "user", select: "_id name" }
+      })
+      .lean();
+
+    if (!classDoc) {
+      return res.status(404).json(formatResponse(false, "Class not found"));
+    }
+
+    if (classDoc.school.toString() !== currentUserSchool.toString()) {
+      return res.status(403).json(formatResponse(false, "Class not in your school"));
+    }
+
+    // Teacher access check - reuse dashboard access pattern
+    if (currentUserRole === "teacher") {
+      const accessResult = await ensureClassDashboardAccess({
+        classId,
+        currentUserId,
+        currentUserRole,
+        currentUserSchool,
+      });
+      if (accessResult.response) {
+        return res.status(accessResult.status).json(accessResult.response);
+      }
+    }
+
+    // Calculate today's date range
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+    // Fetch all students in class
+    const students = await Student.find({ class: classId })
+      .populate({ path: "user", select: "_id name email phone" })
+      .select("_id user rollNumber studentId fatherName motherName status")
+      .lean();
+
+    const userIds = students.map(s => s.user?._id).filter(Boolean);
+
+    // Fetch today's attendance for those students.
+    // Do not require `class` here because some attendance records may have been
+    // saved without the class field, but the student is still enrolled in this class.
+    const attendanceRecords = userIds.length > 0
+      ? await Attendance.find({
+          user: { $in: userIds },
+          date: { $gte: startOfDay, $lte: endOfDay },
+          school: currentUserSchool,
+        })
+          .select("user status remarks class")
+          .lean()
+      : [];
+
+    const attendanceMap = new Map();
+    attendanceRecords.forEach(record => {
+      attendanceMap.set(record.user.toString(), record);
+    });
+
+    // Map students with attendance status
+    const studentAttendance = students.map(student => {
+      const userIdStr = student.user?._id?.toString();
+      const attendance = attendanceMap.get(userIdStr);
+      return {
+        studentId: student._id,
+        userId: userIdStr,
+        name: student.user?.name,
+        email: student.user?.email,
+        phone: student.user?.phone,
+        rollNumber: student.rollNumber,
+        studentIdCode: student.studentId,
+        fatherName: student.fatherName,
+        motherName: student.motherName,
+        status: attendance?.status || "not-marked",
+        remarks: attendance?.remarks || null
+      };
+    }).sort((a, b) => {
+      const aRoll = String(a.rollNumber).padStart(10, '0');
+      const bRoll = String(b.rollNumber).padStart(10, '0');
+      return aRoll.localeCompare(bRoll, undefined, { numeric: true });
+    });
+
+    const summary = {
+      totalStudents: students.length,
+      present: attendanceRecords.filter(a => a.status === "present").length,
+      absent: attendanceRecords.filter(a => a.status === "absent").length,
+      leave: attendanceRecords.filter(a => a.status === "leave").length,
+      notMarked: students.length - attendanceRecords.length
+    };
+
+    return res.status(200).json(
+      formatResponse(true, "Today's class attendance fetched successfully", {
+        classInfo: {
+          _id: classDoc._id,
+          name: classDoc.name,
+          grade: classDoc.grade,
+          section: classDoc.section
+        },
+        date: formatDateKey(today),
+        attendance: studentAttendance,
+        summary
+      })
+    );
+  } catch (error) {
+    console.error("Error fetching today's class attendance:", error);
+    return res.status(500).json(formatResponse(false, "Error fetching today's class attendance", null, error.message));
+  }
+};
+
+// ============ GET TODAY ATTENDANCE FOR ANY ROLE EXCEPT THE STUDENDT ========
+/**
+ * Get today's attendance for all User have same role in a school
+ * Each User appears in result; unmarked students have status "not-marked"
+ * Admin: any class in school
+ */
+
+const getTodayAttendanceRole = async (req, res) => {
+  try {
+    // accept role from either path param or query
+    const role = req.params.role || req.query.role;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    if(currentUserRole !== 'admin'){
+       return res.status(402).json(formatResponse(false, "Only admin can access this Feactures"));
+    }
+
+    if (!role) {
+      return res.status(400).json(formatResponse(false, "Role is required in path"));
+    }
+    const roleRec = await Role.findOne({role:role});
+
+    if(!roleRec){
+        return res.status(400).json(formatResponse(false, "Role is required in path"));
+    }
+
+
+    // Calculate today's date range
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+    // Fetch all students in class
+    const users = await User.find({ role: roleRec._id, school: currentUserSchool })
+      .select("_id username name email phone image")
+      .lean();
+
+    const userIds = users.map(u => u._id).filter(Boolean);
+
+    // Fetch today's attendance for those students
+    const attendanceRecords = userIds.length > 0
+      ? await Attendance.find({
+          user: { $in: userIds },
+          date: { $gte: startOfDay, $lte: endOfDay },
+          school: currentUserSchool,
+        })
+          .select("user status remarks")
+          .lean()
+      : [];
+
+    const attendanceMap = new Map();
+    attendanceRecords.forEach(record => {
+      attendanceMap.set(record.user.toString(), record);
+    });
+
+    // Merge role-specific meta (teacher/admin/staff) so frontend gets richer payload
+    const roleMetaMap = new Map();
+    try {
+      const Teacher = require('../models/teacher');
+      const Staff = require('../models/staff');
+      const Admin = require('../models/admin');
+      const userIds = users.map(u => u._id).filter(Boolean);
+
+      if (roleRec.role === 'teacher') {
+        const teacherDocs = await Teacher.find({ user: { $in: userIds } })
+          .populate({ path: 'classTeacher', select: '_id name section' })
+          .lean();
+        teacherDocs.forEach(td => {
+          if (td.user) roleMetaMap.set(td.user.toString(), td);
+        });
+      } else if (roleRec.role === 'staff') {
+        const staffDocs = await Staff.find({ user: { $in: userIds } }).lean();
+        staffDocs.forEach(sd => {
+          if (sd.user) roleMetaMap.set(sd.user.toString(), sd);
+        });
+      } else if (roleRec.role === 'admin') {
+        const adminDocs = await Admin.find({ user: { $in: userIds } }).lean();
+        adminDocs.forEach(ad => {
+          if (ad.user) roleMetaMap.set(ad.user.toString(), ad);
+        });
+      }
+    } catch (err) {
+      // if role-specific models are missing, continue with basic user info
+      console.warn('Could not load role meta models for getTodayAttendanceRole', err?.message || err);
+    }
+
+    // Map users with attendance status and attach role meta where available
+    const usersAttendeces = users.map(user => {
+      const userIdStr = user._id?.toString();
+      const attendance = attendanceMap.get(userIdStr);
+      const meta = roleMetaMap.get(userIdStr) || null;
+      return {
+        _id: user._id,
+        userId: userIdStr,
+        username: user.username,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        image: user.image || null,
+        status: attendance?.status || "not-marked",
+        remarks: attendance?.remarks || null,
+        roleMeta: meta,
+      };
+    });
+
+    const summary = {
+      totalUsers: users.length,
+      present: attendanceRecords.filter(a => a.status === "present").length,
+      absent: attendanceRecords.filter(a => a.status === "absent").length,
+      leave: attendanceRecords.filter(a => a.status === "leave").length,
+      notMarked: users.length - attendanceRecords.length
+    };
+
+    return res.status(200).json(
+      formatResponse(true, "Today's class attendance fetched successfully", {
+        date: formatDateKey(today),
+        attendance: usersAttendeces,
+        summary
+      })
+    );
+  } catch (error) {
+    console.error("Error fetching today's attendance for ROLE:", error);
+    return res.status(500).json(formatResponse(false, "Error fetching today's class attendance", null, error.message));
+  }
+};
+
+// ==================== BULK MARK ATTENDANCE ====================
+/**
+ * Bulk mark/update attendance for multiple students
+ * Admin: can mark any user in school
+ * Teacher: can mark only students in school
+ * Overwrites existing attendance for same user+date combo
+ */
+const bulkMarkAttendance = async (req, res) => {
+  try {
+    const { records, date } = req.body;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    if (!currentUserSchool) {
+      return res.status(400).json(formatResponse(false, "Your account is not associated with any school"));
+    }
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json(formatResponse(false, "records array is required and must not be empty"));
+    }
+
+    // Determine attendance date: use provided date or default to today
+    let attendanceDate = new Date();
+    if (date) {
+      attendanceDate = new Date(date);
+      if (Number.isNaN(attendanceDate.getTime())) {
+        return res.status(400).json(formatResponse(false, "Invalid date value"));
+      }
+    }
+    attendanceDate.setHours(0, 0, 0, 0);
+
+    // Validate all records
+    const validatedRecords = [];
+    const uniqueUserIds = new Set();
+    for (const record of records) {
+      if (!record.userId || !record.status) {
+        return res.status(400).json(formatResponse(false, "Each record must have userId and status"));
+      }
+      if (!["present", "absent", "leave"].includes(record.status)) {
+        return res.status(400).json(formatResponse(false, `Invalid status: ${record.status}. Must be: present, absent, or leave`));
+      }
+      if (!uniqueUserIds.has(record.userId)) {
+        uniqueUserIds.add(record.userId);
+        validatedRecords.push({
+          userId: record.userId,
+          status: record.status,
+          remarks: record.remarks || null,
+          classId: record.classId || null
+        });
+      }
+    }
+
+    // Fetch all target users
+    const users = await User.find({ _id: { $in: Array.from(uniqueUserIds) } })
+      .populate("role", "role")
+      .populate("school", "_id");
+
+    if (users.length !== validatedRecords.length) {
+      return res.status(404).json(formatResponse(false, "One or more user IDs do not exist"));
+    }
+
+    // Verify all users are in same school
+    for (const user of users) {
+      if (user.school._id.toString() !== currentUserSchool.toString()) {
+        return res.status(403).json(formatResponse(false, `User ${user._id} is not in your school`));
+      }
+    }
+
+    // Authorization: Teacher can only mark students
+    if (currentUserRole === "teacher") {
+      for (const user of users) {
+        if (user.role.role !== "student") {
+          return res.status(403).json(formatResponse(false, `Teacher can only mark attendance for students`));
+        }
+      }
+    }
+
+    // Perform upsert for each record
+    const results = {
+      processed: 0,
+      created: [],
+      updated: [],
+      failed: []
+    };
+
+    for (const record of validatedRecords) {
+      try {
+        const existingAttendance = await Attendance.findOne({
+          user: record.userId,
+          date: attendanceDate,
+          school: currentUserSchool
+        });
+
+        if (existingAttendance) {
+          // Update existing record
+          existingAttendance.status = record.status;
+          existingAttendance.remarks = record.remarks;
+          existingAttendance.updatedBy = currentUserId;
+          existingAttendance.class = record.classId || existingAttendance.class;
+          await existingAttendance.save();
+          results.updated.push({
+            userId: record.userId,
+            status: record.status,
+            action: "updated"
+          });
+        } else {
+          // Create new record
+          const newAttendance = await Attendance.create({
+            user: record.userId,
+            status: record.status,
+            remarks: record.remarks,
+            date: attendanceDate,
+            school: currentUserSchool,
+            class: record.classId || null,
+            createdBy: currentUserId,
+            updatedBy: currentUserId
+          });
+          results.created.push({
+            userId: record.userId,
+            status: record.status,
+            action: "created"
+          });
+        }
+        results.processed += 1;
+      } catch (error) {
+        results.failed.push({
+          userId: record.userId,
+          error: error.message
+        });
+      }
+    }
+
+    return res.status(200).json(
+      formatResponse(true, "Bulk attendance processed successfully", {
+        date: formatDateKey(attendanceDate),
+        results: {
+          totalProcessed: results.processed,
+          totalCreated: results.created.length,
+          totalUpdated: results.updated.length,
+          totalFailed: results.failed.length,
+          details: {
+            created: results.created,
+            updated: results.updated,
+            failed: results.failed
+          }
+        }
+      })
+    );
+  } catch (error) {
+    console.error("Error processing bulk attendance:", error);
+    return res.status(500).json(formatResponse(false, "Error processing bulk attendance", null, error.message));
+  }
+};
+
+// ==================== GET CLASS ATTENDANCE CSV ====================
+/**
+ * Export class attendance as CSV for date range
+ * Admin: any class in school
+ * Teacher: classes they are assigned to teach
+ * Returns CSV file download
+ */
+const getClassAttendanceCSV = async (req, res) => {
+  try {
+    const { classId, startDate: startDateValue, endDate: endDateValue } = req.query;
+    const currentUserId = req.user._id;
+    const currentUserRole = req.user.role.role;
+    const currentUserSchool = req.user.school._id;
+
+    if (!classId || !startDateValue || !endDateValue) {
+      return res.status(400).json(formatResponse(false, "classId, startDate, and endDate are required"));
+    }
+
+    const dateRange = parseDashboardDateRange(startDateValue, endDateValue);
+    if (dateRange.error) {
+      return res.status(400).json(formatResponse(false, dateRange.error));
+    }
+
+    // Verify class exists and access
+    const accessResult = await ensureClassDashboardAccess({
+      classId,
+      currentUserId,
+      currentUserRole,
+      currentUserSchool,
+    });
+
+    if (accessResult.response) {
+      return res.status(accessResult.status).json(accessResult.response);
+    }
+
+    const { classDoc } = accessResult;
+
+    // Fetch all students in class
+    const students = await Student.find({ class: classId })
+      .populate({ path: "user", select: "_id name email phone" })
+      .select("_id user rollNumber studentId")
+      .lean();
+
+    const userIds = students.map(s => s.user?._id).filter(Boolean);
+
+    // Fetch attendance records in date range
+    const attendanceRecords = userIds.length > 0
+      ? await Attendance.find({
+          user: { $in: userIds },
+          date: { $gte: dateRange.startDate, $lte: dateRange.endDate },
+          school: currentUserSchool,
+          class: classId
+        })
+          .select("user date status remarks")
+          .lean()
+      : [];
+
+    // Generate date keys for the range
+    const dateKeys = getDateKeysInRange(dateRange.startDate, dateRange.endDate);
+
+    // Build attendance map for quick lookup
+    const attendanceMap = new Map();
+    attendanceRecords.forEach(record => {
+      const key = `${record.user.toString()}_${formatDateKey(record.date)}`;
+      attendanceMap.set(key, record);
+    });
+
+    // Build CSV
+    const csvHeader = ["Date", "StudentID", "RollNumber", "Name", "Email", "Phone", "Status", "Remarks"];
+    const csvRows = [csvHeader.join(",")];
+
+    // One row per student per date
+    for (const dateKey of dateKeys) {
+      for (const student of students) {
+        const userIdStr = student.user?._id?.toString();
+        const mapKey = `${userIdStr}_${dateKey}`;
+        const attendance = attendanceMap.get(mapKey);
+        const status = attendance?.status || "not-marked";
+        const remarks = attendance?.remarks ? `"${attendance.remarks.replace(/"/g, '""')}"` : "";
+
+        const row = [
+          dateKey,
+          student.studentId || "",
+          student.rollNumber || "",
+          student.user?.name || "",
+          student.user?.email || "",
+          student.user?.phone || "",
+          status,
+          remarks
+        ].map(cell => {
+          if (typeof cell === "string" && (cell.includes(",") || cell.includes('"') || cell.includes("\n"))) {
+            return `"${cell.replace(/"/g, '""')}"`;
+          }
+          return cell;
+        }).join(",");
+
+        csvRows.push(row);
+      }
+    }
+
+    const csvContent = csvRows.join("\n");
+    const filename = `attendance-${classDoc.name}-${formatDateKey(dateRange.startDate)}_to_${formatDateKey(dateRange.endDate)}.csv`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
+    return res.send(csvContent);
+  } catch (error) {
+    console.error("Error exporting class attendance CSV:", error);
+    return res.status(500).json(formatResponse(false, "Error exporting attendance", null, error.message));
+  }
+};
+
 module.exports = {
   markAttendance,
   getAttendance,
@@ -1075,5 +1603,9 @@ module.exports = {
   getClassAttendanceDashboardTrend,
   getClassAttendanceDashboardStatusBreakdown,
   getTodayAttendace,
-  updateAttendance
+  getTodayAttendanceRole,
+  updateAttendance,
+  getTodayClassAttendance,
+  bulkMarkAttendance,
+  getClassAttendanceCSV
 };

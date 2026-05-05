@@ -21,6 +21,15 @@ const formatResponse = (success, msg, data = null, error = null) => {
   };
 };
 
+const renderEjsTemplate = (templateName, data) => {
+  return ejs.renderFile(path.join(__dirname, '../templates', templateName), data);
+};
+
+const sendHtmlReport = async (res, templateName, data, msg) => {
+  const html = await renderEjsTemplate(templateName, data);
+  return res.status(200).json(formatResponse(true, msg, { html }));
+};
+
 const getUserRole = (user) => user?.role?.role || user?.role;
 const getSchoolId = (user) => user?.school?._id || user?.school;
 
@@ -1132,6 +1141,97 @@ const getGrade = (percentage) => {
   return "Fail";
 };
 
+const buildAdvancedReportData = async (studentId, academicYear = '2025-26') => {
+  const student = await Student.findById(studentId)
+    .populate({
+      path: 'user',
+      select: 'name school image',
+    })
+    .populate('class', '_id name section grade');
+
+  if (!student) {
+    throw new Error('Student not found');
+  }
+
+  const school = await School.findById(student.user?.school);
+  const classData = student.class || {};
+
+  const progress = await Progress.find({
+    student: studentId,
+    academicYear,
+  }).populate('subject', 'name');
+
+  const subjectMap = {};
+
+  progress.forEach((record) => {
+    const subjectName = record.subject?.name || 'Unknown';
+
+    if (!subjectMap[subjectName]) {
+      subjectMap[subjectName] = {
+        total: 0,
+        obtained: 0,
+      };
+    }
+
+    subjectMap[subjectName].total += Number(record.totalMarks || 0);
+    subjectMap[subjectName].obtained += Number(record.marksObtained || 0);
+  });
+
+  let totalMarks = 0;
+  let obtainedMarks = 0;
+
+  const subjects = Object.keys(subjectMap).sort().map((subjectName) => {
+    const data = subjectMap[subjectName];
+    const percentage = data.total ? (data.obtained / data.total) * 100 : 0;
+
+    totalMarks += data.total;
+    obtainedMarks += data.obtained;
+
+    return {
+      subjectName,
+      obtained: data.obtained,
+      total: data.total,
+      percentage: percentage.toFixed(2),
+      grade: getGrade(percentage),
+    };
+  });
+
+  const overallPercentage = totalMarks ? (obtainedMarks / totalMarks) * 100 : 0;
+
+  return {
+    school: {
+      name: school?.schoolName || school?.name || 'School',
+      address: school?.address || '',
+    },
+    student: {
+      name: student.user?.name || '',
+      fatherName: student.fatherName || '',
+      motherName: student.motherName || '',
+      rollNumber: student.rollNumber || '',
+      dob: student.dateOfBirth || '',
+      photo: student.user?.image || '',
+    },
+    classData: {
+      name: classData.name || '-',
+      section: classData.section || '-',
+    },
+    academicYear,
+    subjects,
+    summary: {
+      totalMarks,
+      obtainedMarks,
+      percentage: overallPercentage.toFixed(2),
+      grade: getGrade(overallPercentage),
+    },
+    remarks:
+      overallPercentage > 75
+        ? 'Excellent performance'
+        : overallPercentage > 50
+        ? 'Good performance'
+        : 'Needs improvement',
+  };
+};
+
 const generateAdvancedReport = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -1264,6 +1364,26 @@ const generateAdvancedReport = async (req, res) => {
   }
 };
 
+const generateAdvancedReportHtml = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const academicYear = req.query.academicYear || '2025-26';
+    const school = req.user.school._id;
+
+    const student = await Student.findById(studentId).populate('user', '_id school');
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+
+    if (!student.user?.school || school.toString() !== student.user.school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Student is not belong to your school'));
+    }
+
+    const data = await buildAdvancedReportData(studentId, academicYear);
+    return await sendHtmlReport(res, 'advancedReport.ejs', data, 'Advanced report rendered successfully');
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error generating advanced report html', null, e.message));
+  }
+};
+
 const generateStyledReport = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -1309,6 +1429,26 @@ const generateStyledReport = async (req, res) => {
   }
 };
 
+const generateStyledReportHtml = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const academicYear = req.query.academicYear || '2025-26';
+    const school = req.user.school._id;
+
+    const student = await Student.findById(studentId).populate('user', '_id name school');
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+
+    if (!student.user?.school || school.toString() !== student.user.school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Student is not belong to your school'));
+    }
+
+    const data = await buildCBSEData(studentId, academicYear);
+    return await sendHtmlReport(res, 'reportCard.ejs', data, 'Styled report rendered successfully');
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error generating styled report html', null, e.message));
+  }
+};
+
 const generateCBSEReport = async (req, res) => {
   try {
     const academicYear = req.query.academicYear || "2025-26";
@@ -1349,6 +1489,26 @@ const generateCBSEReport = async (req, res) => {
     res.send(pdf);
   } catch (e) {
     return res.status(500).json(formatResponse(false, "Error generating CBSE report", null, e.message));
+  }
+};
+
+const generateCBSEReportHtml = async (req, res) => {
+  try {
+    const academicYear = req.query.academicYear || '2025-26';
+    const studentId = req.params.studentId;
+    const school = req.user.school._id;
+    const student = await Student.findById(studentId).populate('user', '_id name school');
+
+    if (!student) return res.status(404).json(formatResponse(false, 'Student not found'));
+
+    if (!student.user?.school || school.toString() !== student.user.school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Student is not belong to your school'));
+    }
+
+    const data = await buildCBSEData(studentId, academicYear);
+    return await sendHtmlReport(res, 'cbseReportCard.ejs', data, 'CBSE report rendered successfully');
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error generating CBSE report html', null, e.message));
   }
 };
 
@@ -1533,8 +1693,11 @@ module.exports = {
   getStudentResultByYear,
   generateStudentReport,
   generateAdvancedReport,
+  generateAdvancedReportHtml,
   generateStyledReport,
+  generateStyledReportHtml,
   generateCBSEReport,
+  generateCBSEReportHtml,
   getStudentDashboardAnalytics,
   getClassDashboardAnalytics,
   exportStudentPerformanceCsv,

@@ -9,6 +9,7 @@ const subjectRoutes = require('./routes/subjectRoutes')
 const teacherRoutes = require('./routes/teacherRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const progressRoutes = require('./routes/progressRoutes');
+const examRoutes = require('./routes/examRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const noticeRoutes = require('./routes/noticeRoutes');
 const timeTableRoutes = require('./routes/timeTableRoutes');
@@ -50,6 +51,7 @@ app.use('/api/subject', subjectRoutes)
 app.use('/api/teacher', teacherRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/progress', progressRoutes);
+app.use('/api/exam', examRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/notice', noticeRoutes);
 app.use('/api/timetable', timeTableRoutes);

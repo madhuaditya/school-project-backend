@@ -651,6 +651,7 @@ const login = async (req, res) => {
       _id: u._id,
       phone: u.phone,
       school: u.school,
+      image: u.image || "",
     }));
   } catch (error) {
     return res.status(500).json(formatResponse(false, 'Error during login', null, error.message));

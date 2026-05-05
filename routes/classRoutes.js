@@ -7,6 +7,7 @@ const {
   getClassById,
   getClasses,
   getClassStudents,
+  getClassInfo
 } = require("../controllers/classCtrl");
 
 const { validateUser } = require("../middleware/auth");
@@ -31,6 +32,9 @@ router.post("/remove-student", allow("admin", "teacher"), removeStudent);
 
 // GET ALL CLASSES
 router.get("/all", allow('admin','teacher','student'), getClasses);
+
+// GET COMPREHENSIVE CLASS INFO
+router.get("/:classId/info", allow("admin", "teacher"), getClassInfo);
 
 // GET ALL STUDENTS BY CLASS ID
 router.get('/:classId/students', allow('admin', 'teacher', 'student'), getClassStudents);
