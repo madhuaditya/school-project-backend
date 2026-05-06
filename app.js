@@ -21,6 +21,7 @@ const salaryStructureRoutes = require('./routes/salaryStructureRoutes');
 const feeManagementRoutes = require('./routes/feeManagementRoutes');
 const salaryManagementRoutes = require('./routes/salaryManagementRoutes');
 const alertRoutes = require('./routes/alertRoutes');
+const broadcastRoutes = require('./routes/broadcastRoutes');
 const sanitizeResponse = require("./middleware/sanitizeResponse")
 const profileRoutes = require('./routes/profileRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
@@ -63,6 +64,7 @@ app.use('/api/salary-structure', salaryStructureRoutes);
 app.use('/api/fee-management', feeManagementRoutes);
 app.use('/api/salary-management', salaryManagementRoutes);
 app.use('/api/alert', alertRoutes);
+app.use('/api/broadcast', broadcastRoutes);
 // app.use(sanitizeResponse)
 app.use('/api/profile', profileRoutes);
 app.use('/api/subscription', subscriptionRoutes);

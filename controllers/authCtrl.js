@@ -65,6 +65,7 @@ const DEFAULT_TRIAL_FEATURES = [
   'fee-management',
   'salary-management',
   'alert',
+  'broadcast',
   'profile',
 ];
 
@@ -238,7 +239,20 @@ const register = async (req, res) => {
   let createdUser = null;
 
   try {
-    const { name, email, phone, password, role, school, image , username, gender } = req.body;
+    const {
+      name,
+      email,
+      phone,
+      smsPhone,
+      whatsappPhone,
+      telegramChatId,
+      password,
+      role,
+      school,
+      image,
+      username,
+      gender,
+    } = req.body;
     const adminInfo = req.user;
     
     if(!adminInfo || (adminInfo.role.role !== 'admin' && adminInfo.role.role !== 'school' && adminInfo.role.role !== 'teacher')) {
@@ -293,6 +307,9 @@ const register = async (req, res) => {
         username,
         email,
         phone,
+        smsPhone: smsPhone || phone || '',
+        whatsappPhone: whatsappPhone || phone || '',
+        telegramChatId: telegramChatId || '',
         image,
         password,
         address: req.body.address || '',
@@ -376,13 +393,16 @@ const register = async (req, res) => {
 
 const updateUser = async (req, res) => {
   try {
-    const { name, phone, image, address, city, pinCode, state } = req.body;
+    const { name, phone, smsPhone, whatsappPhone, telegramChatId, image, address, city, pinCode, state } = req.body;
     const u = await User.findById(req.user._id).populate('role', 'role').populate('school', 'id schoolName image');
     
     if (!u) return res.status(404).json(formatResponse(false, 'User not found'));
     
     u.name = name || u.name;
     u.phone = phone || u.phone;
+    u.smsPhone = smsPhone || u.smsPhone;
+    u.whatsappPhone = whatsappPhone || u.whatsappPhone;
+    u.telegramChatId = telegramChatId || u.telegramChatId;
     u.image = image || u.image;
     u.address = address || u.address;
     u.city = city || u.city;

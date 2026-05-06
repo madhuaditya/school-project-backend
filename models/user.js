@@ -28,6 +28,23 @@ const userSchema = new mongoose.Schema(
       sparse: true,
     },
 
+    smsPhone: {
+      type: String,
+      trim: true,
+      sparse: true,
+    },
+
+    whatsappPhone: {
+      type: String,
+      trim: true,
+      sparse: true,
+    },
+
+    telegramChatId: {
+      type: String,
+      trim: true,
+    },
+
     password: {
       type: String,
       required: true,

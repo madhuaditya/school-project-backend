@@ -69,9 +69,12 @@ const getMe = async (req, res) => {
 // UPDATE PROFILE (name, phone only)
 const updateProfile = async (req, res) => {
   try {
-    const { name, phone, address, city, state, pinCode } = req.body;
+    const { name, phone, smsPhone, whatsappPhone, telegramChatId, address, city, state, pinCode } = req.body;
     const nextName = typeof name === 'string' ? name.trim() : undefined;
     const nextPhone = typeof phone === 'string' ? phone.trim() : undefined;
+    const nextSmsPhone = typeof smsPhone === 'string' ? smsPhone.trim() : undefined;
+    const nextWhatsappPhone = typeof whatsappPhone === 'string' ? whatsappPhone.trim() : undefined;
+    const nextTelegramChatId = typeof telegramChatId === 'string' ? telegramChatId.trim() : undefined;
     const nextAddress = typeof address === 'string' ? address.trim() : undefined;
     const nextCity = typeof city === 'string' ? city.trim() : undefined;
     const nextState = typeof state === 'string' ? state.trim() : undefined;
@@ -79,6 +82,8 @@ const updateProfile = async (req, res) => {
     
     if(nextName && nextName.length < 3) return res.status(400).json(formatResponse(false, 'Name must be at least 3 characters'));
     if(nextPhone && !/^\d{10}$/.test(nextPhone)) return res.status(400).json(formatResponse(false, 'Invalid phone number'));
+    if(nextSmsPhone && !/^\d{10,15}$/.test(nextSmsPhone)) return res.status(400).json(formatResponse(false, 'Invalid SMS phone number'));
+    if(nextWhatsappPhone && !/^\d{10,15}$/.test(nextWhatsappPhone)) return res.status(400).json(formatResponse(false, 'Invalid WhatsApp phone number'));
     if(nextAddress && nextAddress.length < 5) return res.status(400).json(formatResponse(false, 'Address must be at least 5 characters'));
     if(nextCity && nextCity.length < 2) return res.status(400).json(formatResponse(false, 'City must be at least 2 characters'));
     if(nextState && nextState.length < 2) return res.status(400).json(formatResponse(false, 'State must be at least 2 characters'));
@@ -89,6 +94,9 @@ const updateProfile = async (req, res) => {
 
     if (nextName !== undefined) u.name = nextName;
     if (nextPhone !== undefined) u.phone = nextPhone;
+    if (nextSmsPhone !== undefined) u.smsPhone = nextSmsPhone;
+    if (nextWhatsappPhone !== undefined) u.whatsappPhone = nextWhatsappPhone;
+    if (nextTelegramChatId !== undefined) u.telegramChatId = nextTelegramChatId;
     if (nextAddress !== undefined) u.address = nextAddress;
     if (nextCity !== undefined) u.city = nextCity;
     if (nextState !== undefined) u.state = nextState;

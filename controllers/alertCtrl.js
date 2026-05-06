@@ -107,18 +107,11 @@ const markAsViewed = async (req, res) => {
       return res.status(403).json(formatResponse(false, "Unauthorized school access"));
     }
 
-    alert.viewed = true;
-    alert.viewedAt = new Date();
-    await alert.save();
-
-    const populated = await Alert.findById(alert._id)
-      .populate("createdFor", "_id name email")
-      .populate("createdBy", "_id name email")
-      .populate("school", "_id schoolName");
+    await alert.deleteOne();
 
     return res
       .status(200)
-      .json(formatResponse(true, "Alert marked as viewed successfully", populated));
+      .json(formatResponse(true, "Alert removed successfully after viewing"));
   } catch (error) {
     return res
       .status(500)

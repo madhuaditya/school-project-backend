@@ -1,29 +1,33 @@
 const nodemailer = require('nodemailer');
 
-// console.log("Mailer config:", {
-//   host: process.env.MAIL_HOST,
-//   port: process.env.MAIL_PORT,
-//   user: process.env.MAIL_USER,
-//   pass: process.env.MAIL_PASS ? "****" : undefined, // Don't log the actual password
-// });
-const t = nodemailer.createTransport({
-  host: process.env.MAIL_HOST,
-  port: process.env.MAIL_PORT,
-  secure: false,
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS,
-  },
-});
+const getTransport = () =>
+  nodemailer.createTransport({
+    host: process.env.MAIL_HOST,
+    port: Number(process.env.MAIL_PORT),
+    secure: false,
+    auth: {
+      user: process.env.MAIL_USER,
+      pass: process.env.MAIL_PASS,
+    },
+  });
 
 const sendMail = async (to, subject, html) => {
-  return ;
-  // await t.sendMail({
-  //   from: `"Schook App" <${process.env.MAIL_USER}>`,
-  //   to,
-  //   subject,
-  //   html,
-  // });
+  if (!to) {
+    return { skipped: true, reason: 'Recipient email is required' };
+  }
+
+  if (!process.env.MAIL_HOST || !process.env.MAIL_PORT || !process.env.MAIL_USER || !process.env.MAIL_PASS) {
+    return { skipped: true, reason: 'Mail service is not configured' };
+  }
+
+  const transport = getTransport();
+
+  return transport.sendMail({
+    from: `"School App" <${process.env.MAIL_USER}>`,
+    to,
+    subject,
+    html,
+  });
 };
 
 module.exports = sendMail;
