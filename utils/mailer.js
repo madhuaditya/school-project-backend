@@ -22,6 +22,8 @@ const sendMail = async (to, subject, html) => {
 
   const transport = getTransport();
 
+  return ;
+
   return transport.sendMail({
     from: `"School App" <${process.env.MAIL_USER}>`,
     to,
