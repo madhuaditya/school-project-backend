@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fee Payment Slip</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+      .sheet {
+        width: 100%;
+        max-width: 860px;
+        margin: 0 auto;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .header {
+        padding: 24px 28px;
+        background: linear-gradient(135deg, #0f766e, #2563eb);
+        color: #ffffff;
+      }
+      .header-grid, .meta-grid, .summary-grid, .info-grid {
+        display: grid;
+        gap: 16px;
+      }
+      .header-grid {
+        grid-template-columns: 2fr 1fr;
+        align-items: end;
+      }
+      .title {
+        margin: 0 0 6px;
+        font-size: 28px;
+        font-weight: 700;
+      }
+      .subtitle {
+        margin: 0;
+        font-size: 13px;
+        opacity: 0.9;
+      }
+      .receipt-badge {
+        text-align: right;
+      }
+      .receipt-badge .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.85;
+      }
+      .receipt-badge .value {
+        margin-top: 6px;
+        font-size: 18px;
+        font-weight: 700;
+      }
+      .section {
+        padding: 24px 28px;
+        border-top: 1px solid #e2e8f0;
+      }
+      .section h2 {
+        margin: 0 0 14px;
+        font-size: 16px;
+      }
+      .meta-grid, .info-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .summary-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .info-card, .summary-card {
+        border: 1px solid #dbeafe;
+        background: #f8fbff;
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+      .summary-card strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 20px;
+      }
+      .label {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        color: #64748b;
+      }
+      .value {
+        margin-top: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        word-break: break-word;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        padding: 12px 10px;
+        border-bottom: 1px solid #e2e8f0;
+        text-align: left;
+        font-size: 13px;
+      }
+      th {
+        background: #eff6ff;
+        color: #1e3a8a;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+      }
+      .note-box {
+        margin-top: 14px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 12px;
+        padding: 14px 16px;
+        background: #f8fafc;
+        font-size: 13px;
+        color: #334155;
+      }
+      .footer {
+        padding: 18px 28px 24px;
+        font-size: 12px;
+        color: #64748b;
+      }
+      @media print {
+        body {
+          background: #ffffff;
+          padding: 0;
+        }
+        .sheet {
+          border: 0;
+          border-radius: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="header">
+        <div class="header-grid">
+          <div>
+            <h1 class="title"><%= school.schoolName %></h1>
+            <p class="subtitle"><%= school.addressLine %></p>
+            <p class="subtitle">Phone: <%= school.phone %> | Email: <%= school.email %></p>
+          </div>
+          <div class="receipt-badge">
+            <div class="label">Fee Receipt No.</div>
+            <div class="value"><%= slip.receiptNumber %></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Student Information</h2>
+        <div class="info-grid">
+          <div class="info-card"><span class="label">Student Name</span><div class="value"><%= student.name %></div></div>
+          <div class="info-card"><span class="label">Student ID</span><div class="value"><%= student.studentId %></div></div>
+          <div class="info-card"><span class="label">Class</span><div class="value"><%= student.classLabel %></div></div>
+          <div class="info-card"><span class="label">Roll Number</span><div class="value"><%= student.rollNumber %></div></div>
+          <div class="info-card"><span class="label">Parent / Guardian</span><div class="value"><%= student.fatherName %></div></div>
+          <div class="info-card"><span class="label">Contact</span><div class="value"><%= student.contact %></div></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Payment Information</h2>
+        <div class="meta-grid">
+          <div class="info-card"><span class="label">Payment Date</span><div class="value"><%= slip.paymentDate %></div></div>
+          <div class="info-card"><span class="label">Academic Period</span><div class="value"><%= slip.periodLabel %></div></div>
+          <div class="info-card"><span class="label">Payment Method</span><div class="value"><%= slip.method %></div></div>
+          <div class="info-card"><span class="label">Transaction ID</span><div class="value"><%= slip.transactionId %></div></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Fee Breakdown</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% feeComponents.forEach((item) => { %>
+              <tr>
+                <td><%= item.label %></td>
+                <td><%= item.amount %></td>
+              </tr>
+            <% }) %>
+            <tr>
+              <td>Late Fee</td>
+              <td><%= slip.lateFee %></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2>Summary</h2>
+        <div class="summary-grid">
+          <div class="summary-card"><span class="label">Expected Fee</span><strong><%= slip.expectedAmount %></strong></div>
+          <div class="summary-card"><span class="label">Paid This Receipt</span><strong><%= slip.amountPaidThisTime %></strong></div>
+          <div class="summary-card"><span class="label">Total Paid Till Now</span><strong><%= slip.totalPaid %></strong></div>
+          <div class="summary-card"><span class="label">Remaining Due</span><strong><%= slip.remainingDue %></strong></div>
+        </div>
+        <div class="note-box">
+          <div><strong>Status:</strong> <%= slip.status %></div>
+          <div><strong>Remarks:</strong> <%= slip.remarks %></div>
+          <div><strong>Received By:</strong> <%= slip.receivedBy %></div>
+        </div>
+      </div>
+
+      <div class="footer">
+        This is a computer generated fee receipt and is valid without signature.
+      </div>
+    </div>
+  </body>
+</html>

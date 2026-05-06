@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   getSalaryPaymentById,
+  getSalaryPaymentSlipHtml,
   deleteSalaryPayment,
   getStaffSalaryByMonth,
   getSalaryMatrixByMonth,
@@ -17,6 +18,7 @@ router.use(validateUser, checkSubscriptionActive);
 
 router.post("/payment/create", allow("admin"), recordSalaryPayment);
 router.get("/payment/:id", allow("admin"), getSalaryPaymentById);
+router.get("/payment/:id/slip-html", allow("admin"), getSalaryPaymentSlipHtml);
 router.delete("/payment/:id", allow("admin"), deleteSalaryPayment);
 
 router.get("/summary/staff/:staffId/month/:month/:year", allow("admin", "teacher", "staff"), getStaffSalaryByMonth);

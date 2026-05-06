@@ -3,6 +3,7 @@ const Payment = require("../models/payment");
 const FeeStructure = require("../models/feeStructure");
 const Student = require("../models/student");
 const Class = require("../models/class");
+const { renderFeeSlipHtml } = require("../utils/paymentSlip");
 
 const FEE_METHODS = ["UPI", "CARD", "NETBANKING","BANK", "CASH"];
 
@@ -237,9 +238,10 @@ const createPayment = async (req, res) => {
     });
 
     const populated = await Payment.findById(created._id)
-      .populate("user", "_id name email")
+      .populate("user", "_id name email phone")
       .populate("class", "_id name grade section")
-      .populate("feeStructureId", "_id class components");
+      .populate("feeStructureId", "_id class components")
+      .populate("createdBy", "_id name email");
 
     const summary = await buildMonthSummary({
       schoolId: req.user.school._id,
@@ -248,10 +250,18 @@ const createPayment = async (req, res) => {
       year: parsedYear,
     });
 
+    const slip = await renderFeeSlipHtml({
+      payment: populated,
+      monthSummary: summary,
+      schoolId: req.user.school._id,
+    });
+
     return res.status(201).json(
       formatResponse(true, "Payment recorded successfully", {
         payment: populated,
         monthSummary: summary,
+        slipHtml: slip.html,
+        slipMeta: slip.meta,
       })
     );
   } catch (error) {
@@ -270,7 +280,7 @@ const getPaymentById = async (req, res) => {
     }
 
     const payment = await Payment.findById(id)
-      .populate("user", "_id name email")
+      .populate("user", "_id name email phone")
       .populate("class", "_id name grade section school")
       .populate("feeStructureId", "_id class components")
       .populate("createdBy", "_id name email")
@@ -301,6 +311,56 @@ const getPaymentById = async (req, res) => {
     return res
       .status(500)
       .json(formatResponse(false, "Error fetching payment", null, error.message));
+  }
+};
+
+const getPaymentSlipHtml = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json(formatResponse(false, "Valid payment id is required"));
+    }
+
+    const payment = await Payment.findById(id)
+      .populate("user", "_id name email phone")
+      .populate("class", "_id name grade section school")
+      .populate("feeStructureId", "_id class components")
+      .populate("createdBy", "_id name email");
+
+    if (!payment) {
+      return res.status(404).json(formatResponse(false, "Payment not found"));
+    }
+
+    if (payment.school.toString() !== req.user.school._id.toString()) {
+      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+    }
+
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      studentId: payment.user._id,
+      month: payment.month,
+      year: payment.year,
+    });
+
+    const slip = await renderFeeSlipHtml({
+      payment,
+      monthSummary: summary,
+      schoolId: req.user.school._id,
+    });
+
+    return res.status(200).json(
+      formatResponse(true, "Payment slip HTML generated successfully", {
+        payment,
+        monthSummary: summary,
+        slipHtml: slip.html,
+        slipMeta: slip.meta,
+      })
+    );
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error generating payment slip", null, error.message));
   }
 };
 
@@ -621,6 +681,7 @@ const getSchoolWiseFeeMatrix = async (req, res) => {
 module.exports = {
   createPayment,
   getPaymentById,
+  getPaymentSlipHtml,
   deletePayment,
   getStudentFeeByMonthYear,
   getStudentPaymentHistory,

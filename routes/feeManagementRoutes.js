@@ -2,6 +2,7 @@ const express = require("express");
 const {
   createPayment,
   getPaymentById,
+  getPaymentSlipHtml,
   deletePayment,
   getStudentFeeByMonthYear,
   getClassWiseFeeMatrix,
@@ -18,6 +19,7 @@ router.use(allow("admin"));
 
 router.post("/payment/create", createPayment);
 router.get("/payment/:id", getPaymentById);
+router.get("/payment/:id/slip-html", getPaymentSlipHtml);
 router.delete("/payment/:id", deletePayment);
 
 router.get("/summary/student/:studentId/month/:month/:year", getStudentFeeByMonthYear);

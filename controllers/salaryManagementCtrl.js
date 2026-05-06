@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const SalaryPayment = require("../models/salaryPayment");
 const SalaryStructure = require("../models/salaryStructure");
 const User = require("../models/user");
+const { renderSalarySlipHtml } = require("../utils/paymentSlip");
 
 const SALARY_METHODS = ["BANK", "UPI", "CASH"];
 
@@ -223,8 +224,9 @@ const recordSalaryPayment = async (req, res) => {
     });
 
     const payment = await SalaryPayment.findById(created._id)
-      .populate("staffId", "_id name email")
-      .populate("salaryStructureId", "_id role components deductions");
+      .populate("staffId", "_id name email phone role")
+      .populate("salaryStructureId", "_id role components deductions")
+      .populate("createdBy", "_id name email");
 
     const summary = await buildMonthSummary({
       schoolId: req.user.school._id,
@@ -233,10 +235,18 @@ const recordSalaryPayment = async (req, res) => {
       year: parsedYear,
     });
 
+    const slip = await renderSalarySlipHtml({
+      payment,
+      monthSummary: summary,
+      schoolId: req.user.school._id,
+    });
+
     return res.status(201).json(
       formatResponse(true, "Salary payment recorded successfully", {
         payment,
         monthSummary: summary,
+        slipHtml: slip.html,
+        slipMeta: slip.meta,
       })
     );
   } catch (error) {
@@ -255,7 +265,7 @@ const getSalaryPaymentById = async (req, res) => {
     }
 
     const payment = await SalaryPayment.findById(id)
-      .populate("staffId", "_id name email")
+      .populate("staffId", "_id name email phone role")
       .populate("salaryStructureId", "_id role components deductions")
       .populate("createdBy", "_id name email")
       .populate("updatedBy", "_id name email");
@@ -285,6 +295,55 @@ const getSalaryPaymentById = async (req, res) => {
     return res
       .status(500)
       .json(formatResponse(false, "Error fetching salary payment", null, error.message));
+  }
+};
+
+const getSalaryPaymentSlipHtml = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json(formatResponse(false, "Valid payment id is required"));
+    }
+
+    const payment = await SalaryPayment.findById(id)
+      .populate("staffId", "_id name email phone role")
+      .populate("salaryStructureId", "_id role components deductions")
+      .populate("createdBy", "_id name email");
+
+    if (!payment) {
+      return res.status(404).json(formatResponse(false, "Payment not found"));
+    }
+
+    if (payment.school.toString() !== req.user.school._id.toString()) {
+      return res.status(403).json(formatResponse(false, "Unauthorized school access"));
+    }
+
+    const summary = await buildMonthSummary({
+      schoolId: req.user.school._id,
+      staffId: payment.staffId._id,
+      month: payment.month,
+      year: payment.year,
+    });
+
+    const slip = await renderSalarySlipHtml({
+      payment,
+      monthSummary: summary,
+      schoolId: req.user.school._id,
+    });
+
+    return res.status(200).json(
+      formatResponse(true, "Salary slip HTML generated successfully", {
+        payment,
+        monthSummary: summary,
+        slipHtml: slip.html,
+        slipMeta: slip.meta,
+      })
+    );
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error generating salary slip", null, error.message));
   }
 };
 
@@ -498,6 +557,7 @@ const getSalaryMatrixByMonth = async (req, res) => {
 module.exports = {
   recordSalaryPayment,
   getSalaryPaymentById,
+  getSalaryPaymentSlipHtml,
   deleteSalaryPayment,
   getStaffSalaryByMonth,
   getStaffPaymentHistory,
