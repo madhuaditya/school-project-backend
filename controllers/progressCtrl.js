@@ -1,6 +1,7 @@
 const Progress = require('../models/progress');
 const Student = require('../models/student');
 const Subject = require('../models/subject');
+const Exam = require('../models/exam');
 const PDFDocument = require('pdfkit');
 const Class = require('../models/class');
 const Teacher = require('../models/teacher');
@@ -71,6 +72,67 @@ const getValidStudentAndSubject = async ({ studentId, subjectId, schoolId }) => 
   }
 
   return { student, subject };
+};
+
+const resolveTeacherId = async (userId) => {
+  const teacher = await Teacher.findOne({ user: userId }).select('_id');
+  return teacher?._id || null;
+};
+
+const canTeacherAccessSubject = async (userId, subject) => {
+  const teacherId = await resolveTeacherId(userId);
+  if (!teacherId) return false;
+  return subject.teacher?.toString() === teacherId.toString();
+};
+
+const validateMarkPayload = ({ marksObtained, totalMarks }) => {
+  const marks = Number(marksObtained);
+  const total = Number(totalMarks);
+
+  if (!Number.isFinite(marks) || !Number.isFinite(total) || total <= 0 || marks < 0 || marks > total) {
+    return { ok: false, error: 'Invalid marks data' };
+  }
+
+  return { ok: true, marks, total };
+};
+
+const fetchStudentRowsForExam = async ({ exam, academicYear, schoolId }) => {
+  const students = await Student.find({ class: exam.class, user: { $exists: true } })
+    .populate({ path: 'user', select: '_id name email phone image school' })
+    .populate({ path: 'class', select: '_id name section grade' })
+    .sort({ rollNumber: 1, createdAt: 1 });
+
+  const existingProgress = await Progress.find({
+    school: schoolId,
+    subject: exam.subject,
+    class: exam.class,
+    academicYear,
+  }).sort({ date: -1, createdAt: -1 });
+
+  const progressMap = new Map();
+  existingProgress.forEach((record) => {
+    const key = record.student?.toString();
+    if (key && !progressMap.has(key)) {
+      progressMap.set(key, record);
+    }
+  });
+
+  return students.map((student) => {
+    const existing = progressMap.get(student._id.toString()) || null;
+    return {
+      student,
+      progressId: existing?._id || null,
+      type: existing?.type || 'exam',
+      title: existing?.title || exam.name,
+      marksObtained: existing?.marksObtained ?? 0,
+      totalMarks: existing?.totalMarks ?? exam.totalMarks,
+      remarks: existing?.remarks || '',
+      date: existing?.date || exam.scheduledDate || new Date(),
+      percentage: existing?.percentage ?? 0,
+      grade: existing?.grade || getGrade(0),
+      exam,
+    };
+  });
 };
 
 const applyDateRangeFilter = (queryFilter, startDate, endDate) => {
@@ -170,6 +232,316 @@ const addProgress = async (req, res) => {
 
   } catch (e) {
     return res.status(500).json(formatResponse(false, "Error adding progress", null, e.message));
+  }
+};
+
+const getExamProgressTemplate = async (req, res) => {
+  try {
+    const { examId } = req.params;
+    const { academicYear } = req.query;
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+
+    if (!academicYear) {
+      return res.status(400).json(formatResponse(false, 'academicYear is required'));
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(examId)) {
+      return res.status(400).json(formatResponse(false, 'Invalid exam ID'));
+    }
+
+    const exam = await Exam.findById(examId)
+      .populate('subject', '_id name code class school teacher maxMarks')
+      .populate('class', '_id name section grade school');
+
+    if (!exam) {
+      return res.status(404).json(formatResponse(false, 'Exam not found'));
+    }
+
+    if (exam.school.toString() !== school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Exam is not in your school'));
+    }
+
+    if (role === 'teacher') {
+      const canAccess = await canTeacherAccessSubject(req.user._id, exam.subject);
+      if (!canAccess) {
+        return res.status(403).json(formatResponse(false, 'Teacher can access only assigned subjects'));
+      }
+    }
+
+    const rows = await fetchStudentRowsForExam({ exam, academicYear, schoolId: school });
+
+    return res.status(200).json(
+      formatResponse(true, 'Exam progress template fetched successfully', {
+        exam,
+        rows,
+      })
+    );
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error fetching exam template', null, e.message));
+  }
+};
+
+const bulkCreateProgress = async (req, res) => {
+  try {
+    const {
+      subjectId,
+      academicYear,
+      type,
+      title,
+      examId,
+      classId,
+      rows = [],
+    } = req.body;
+
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+
+    if (!school) {
+      return res.status(400).json(formatResponse(false, 'User school context missing'));
+    }
+
+    let exam = null;
+    if (examId) {
+      exam = await Exam.findById(examId)
+        .populate('subject', '_id name code class school teacher maxMarks')
+        .populate('class', '_id name section grade school');
+
+      if (!exam) {
+        return res.status(404).json(formatResponse(false, 'Exam not found'));
+      }
+
+      if (exam.school.toString() !== school.toString()) {
+        return res.status(403).json(formatResponse(false, 'Exam is not in your school'));
+      }
+    }
+
+    const resolvedSubjectId = subjectId || exam?.subject?._id;
+    const resolvedAcademicYear = academicYear || exam?.academicYear;
+    const resolvedType = type || (exam ? 'exam' : null);
+    const resolvedTitle = title || exam?.name;
+    const resolvedClassId = classId || exam?.class?._id;
+
+    if (!resolvedSubjectId || !resolvedAcademicYear || !resolvedType || !resolvedTitle) {
+      return res.status(400).json(formatResponse(false, 'subjectId, academicYear, type, and title are required'));
+    }
+
+    const subjectDoc = await Subject.findById(resolvedSubjectId).populate({ path: 'teacher', select: '_id user' });
+    if (!subjectDoc) {
+      return res.status(404).json(formatResponse(false, 'Subject not found'));
+    }
+
+    if (subjectDoc.school.toString() !== school.toString()) {
+      return res.status(403).json(formatResponse(false, 'Subject is not in your school'));
+    }
+
+    if (role === 'teacher') {
+      const canAccess = await canTeacherAccessSubject(req.user._id, subjectDoc);
+      if (!canAccess) {
+        return res.status(403).json(formatResponse(false, 'Teacher can add performance only for assigned subjects'));
+      }
+    }
+
+    let payloadRows = Array.isArray(rows) ? rows : [];
+    if (!payloadRows.length && exam) {
+      payloadRows = await fetchStudentRowsForExam({ exam, academicYear: resolvedAcademicYear, schoolId: school });
+    }
+
+    if (!payloadRows.length) {
+      return res.status(400).json(formatResponse(false, 'No rows provided for bulk create'));
+    }
+
+    const processed = [];
+    const skipped = [];
+    const operations = [];
+
+    for (const row of payloadRows) {
+      const rowStudentId = row.studentId || row.student?._id || row.student;
+      if (!rowStudentId) {
+        skipped.push({ row, reason: 'studentId is required' });
+        continue;
+      }
+
+      const student = await Student.findById(rowStudentId)
+        .populate({ path: 'user', select: '_id school name' })
+        .populate({ path: 'class', select: '_id name section grade' });
+
+      if (!student) {
+        skipped.push({ row, reason: 'Student not found' });
+        continue;
+      }
+
+      if (!student.user?.school || student.user.school.toString() !== school.toString()) {
+        skipped.push({ row, reason: 'Student is not in your school' });
+        continue;
+      }
+
+      if (resolvedClassId && student.class?._id && student.class._id.toString() !== resolvedClassId.toString()) {
+        skipped.push({ row, reason: 'Student is not in the selected class' });
+        continue;
+      }
+
+      const markValidation = validateMarkPayload({
+        marksObtained: row.marksObtained,
+        totalMarks: row.totalMarks || exam?.totalMarks,
+      });
+
+      if (!markValidation.ok) {
+        skipped.push({ row, reason: markValidation.error });
+        continue;
+      }
+
+      const totalMarks = markValidation.total;
+      const marksObtained = markValidation.marks;
+      const percentage = (marksObtained / totalMarks) * 100;
+      const grade = getGrade(percentage);
+
+      const progressFilter = {
+        student: student._id,
+        subject: resolvedSubjectId,
+        type: resolvedType,
+        title: resolvedTitle,
+        academicYear: resolvedAcademicYear,
+      };
+
+      operations.push({
+        updateOne: {
+          filter: progressFilter,
+          update: {
+            $set: {
+              ...progressFilter,
+              class: resolvedClassId || student.class?._id || student.class,
+              school,
+              marksObtained,
+              totalMarks,
+              percentage,
+              grade,
+              remarks: row.remarks || '',
+              date: row.date || exam?.scheduledDate || new Date(),
+              exam: exam?._id || row.examId || undefined,
+              updatedBy: req.user._id,
+            },
+            $setOnInsert: {
+              createdBy: req.user._id,
+            },
+          },
+          upsert: true,
+        },
+      });
+
+      processed.push({
+        studentId: student._id,
+        percentage,
+        grade,
+      });
+    }
+
+    if (!operations.length) {
+      return res.status(400).json(formatResponse(false, 'No valid rows to process', { skipped }));
+    }
+
+    const result = await Progress.bulkWrite(operations, { ordered: false });
+
+    return res.status(200).json(
+      formatResponse(true, 'Bulk progress processed successfully', {
+        matchedCount: result?.matchedCount || 0,
+        modifiedCount: result?.modifiedCount || 0,
+        upsertedCount: result?.upsertedCount || 0,
+        processedCount: processed.length,
+        skipped,
+      })
+    );
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error processing bulk progress', null, e.message));
+  }
+};
+
+const bulkUpdateProgress = async (req, res) => {
+  try {
+    const { rows = [] } = req.body;
+    const school = getSchoolId(req.user);
+    const role = getUserRole(req.user);
+
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json(formatResponse(false, 'rows array is required'));
+    }
+
+    const updates = [];
+    const skipped = [];
+
+    for (const row of rows) {
+      const progressId = row.progressId || row._id;
+      if (!progressId || !mongoose.Types.ObjectId.isValid(progressId)) {
+        skipped.push({ row, reason: 'progressId is required' });
+        continue;
+      }
+
+      const item = await Progress.findById(progressId)
+        .populate('student', 'class user')
+        .populate({ path: 'subject', select: 'class teacher school' });
+
+      if (!item) {
+        skipped.push({ row, reason: 'Progress record not found' });
+        continue;
+      }
+
+      if (item.school.toString() !== school.toString()) {
+        skipped.push({ row, reason: 'Record is outside your school' });
+        continue;
+      }
+
+      if (role === 'teacher') {
+        const canAccess = await canTeacherAccessSubject(req.user._id, item.subject);
+        if (!canAccess) {
+          skipped.push({ row, reason: 'Teacher can update performance only for assigned subjects' });
+          continue;
+        }
+      }
+
+      const nextMarks = row.marksObtained != null ? Number(row.marksObtained) : item.marksObtained;
+      const nextTotal = row.totalMarks != null ? Number(row.totalMarks) : item.totalMarks;
+      const validation = validateMarkPayload({ marksObtained: nextMarks, totalMarks: nextTotal });
+      if (!validation.ok) {
+        skipped.push({ row, reason: validation.error });
+        continue;
+      }
+
+      const nextPercentage = (validation.marks / validation.total) * 100;
+      const nextGrade = getGrade(nextPercentage);
+
+      updates.push({
+        updateOne: {
+          filter: { _id: item._id },
+          update: {
+            $set: {
+              marksObtained: validation.marks,
+              totalMarks: validation.total,
+              percentage: nextPercentage,
+              grade: nextGrade,
+              remarks: row.remarks != null ? row.remarks : item.remarks,
+              date: row.date || item.date,
+              updatedBy: req.user._id,
+            },
+          },
+        },
+      });
+    }
+
+    if (!updates.length) {
+      return res.status(400).json(formatResponse(false, 'No valid rows to update', { skipped }));
+    }
+
+    const result = await Progress.bulkWrite(updates, { ordered: false });
+
+    return res.status(200).json(
+      formatResponse(true, 'Bulk progress updated successfully', {
+        matchedCount: result?.matchedCount || 0,
+        modifiedCount: result?.modifiedCount || 0,
+        skipped,
+      })
+    );
+  } catch (e) {
+    return res.status(500).json(formatResponse(false, 'Error updating bulk progress', null, e.message));
   }
 };
 
@@ -1682,6 +2054,9 @@ const buildCBSEData = async (studentId, academicYear = "2025-26") => {
 
 module.exports = {
   addProgress,
+  getExamProgressTemplate,
+  bulkCreateProgress,
+  bulkUpdateProgress,
   updateProgress,
   deleteProgress,
   getProgressById,

@@ -5,7 +5,9 @@ const {
   assignSubjectToClass,
   updateSubject,
   deleteSubject,
-  getSubject
+  getSubject,
+  getSubjectDashboard,
+  getSubjectDetails,
 } = require("../controllers/subjectCtrl");
 
 const { validateUser } = require("../middleware/auth");
@@ -24,6 +26,10 @@ router.post("/assign-to-class", allow("admin", "teacher"), assignSubjectToClass)
 
 // GET SUBJECTS BY CLASS
 router.get("/class/:classId", allow("admin", "teacher", "student"), getSubjectsByClass);
+
+// SUBJECT DASHBOARD + DETAILS
+router.get("/dashboard", allow("admin", "teacher"), getSubjectDashboard);
+router.get("/:subjectId/details", allow("admin", "teacher"), getSubjectDetails);
 
 // UPDATE SUBJECT
 router.put("/:id", allow("admin", "teacher"), updateSubject);

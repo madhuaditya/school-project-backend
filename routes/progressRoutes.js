@@ -1,12 +1,16 @@
 const express = require("express");
 const {
   addProgress,
+  getExamProgressTemplate,
+  bulkCreateProgress,
+  bulkUpdateProgress,
   updateProgress,
   deleteProgress,
   getProgressById,
   getValidSubjectsForStudent,
   getStudentPerformance,
   getClassResult,
+  getSubjectRanking,
   getSubjectPerformance,
   generateStudentReport,
   generateAdvancedReport,
@@ -31,6 +35,14 @@ router.use(validateUser, checkSubscriptionActive);
 
 // ADD
 router.post("/create", allow("admin", "teacher"), addProgress);
+router.post("/bulk-create", allow("admin", "teacher"), bulkCreateProgress);
+router.put("/bulk-update", allow("admin", "teacher"), bulkUpdateProgress);
+
+router.get(
+  "/exam/:examId/template",
+  allow("admin", "teacher"),
+  getExamProgressTemplate,
+);
 
 // VALID SUBJECTS FOR A STUDENT (used for add/update forms)
 router.get(
@@ -92,6 +104,11 @@ router.get(
 router.get("/class/:classId", allow("admin", "teacher"), getClassResult);
 
 // SUBJECT PERFORMANCE
+router.get(
+  "/subject/:subjectId/ranking",
+  allow("admin", "teacher"),
+  getSubjectRanking,
+);
 router.get(
   "/subject/:subjectId",
   allow("admin", "teacher"),
