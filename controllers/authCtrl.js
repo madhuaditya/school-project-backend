@@ -2,7 +2,7 @@ const User = require('../models/user');
 const Role = require('../models/role');
 const School = require('../models/school');
 const jwt = require('jsonwebtoken');
-const sendMail = require('../utils/mailer');
+const sendMail = require('../utils/sendEmailUsingResend');
 const { genAT, genRT } = require('../utils/jwt');
 const mongoose = require('mongoose');
 const VALID_ROLES = ['admin', 'teacher', 'student', 'staff', 'school'];
@@ -766,7 +766,7 @@ const forgotPassword = async (req, res) => {
     u.resetTokenExp = Date.now() + 15 * 60 * 1000;
     await u.save();
 
-    const link = `${process.env.CLIENT_URL}/reset-password/${token}`;
+    const link = `${process.env.CLIENT_URL}/#/reset-password/${token}`;
 
     await sendMail(
       u.email,
