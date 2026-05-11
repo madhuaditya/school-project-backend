@@ -2,6 +2,8 @@
 require('dotenv').config();
 const app = require('./app');
 const mongoose = require('mongoose');
+const http = require('http');
+const { initMessagingSocket } = require('./sockets/messagingSocket');
 
 // console.log("Connecting to MongoDB with URI: ", process.env.MONGO_URL);
 
@@ -19,7 +21,9 @@ mongoose
   })
   .then(() => {
     console.log('MongoDB connected');
-    app.listen(PORT, () => {
+    const server = http.createServer(app);
+    initMessagingSocket(server);
+    server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
   })

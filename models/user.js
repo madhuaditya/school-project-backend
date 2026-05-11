@@ -104,6 +104,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 userSchema.index({ email: 1, phone: 1 });
+userSchema.index({ school: 1, active: 1, name: 1, username: 1, phone: 1 });
 
 userSchema.pre('save', async function () {
   if (!this.isModified('password')) return ;

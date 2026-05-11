@@ -51,6 +51,8 @@ const normalizeProfilePayload = (profile) => {
   return normalized;
 };
 
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // GET OWN PROFILE
 const getMe = async (req, res) => {
   try {
@@ -190,9 +192,93 @@ const getBasicProfile = async (req, res) => {
   }
 };
 
+const searchSchoolUsers = async (req, res) => {
+  try {
+    const query = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 6, 1), 10);
+
+    if (query.length < 3) {
+      return res.status(200).json(formatResponse(true, 'Enter at least 3 characters to search users', []));
+    }
+
+    const schoolId = req.user?.school?._id || req.user?.school;
+    if (!schoolId) {
+      return res.status(400).json(formatResponse(false, 'School context is required'));
+    }
+
+    const safeQuery = escapeRegex(query);
+    const startsWithRegex = new RegExp(`^${safeQuery}`, 'i');
+    const containsRegex = new RegExp(safeQuery, 'i');
+    const digitsOnly = query.replace(/\D/g, '');
+
+    const phoneRegex = digitsOnly ? new RegExp(`^${escapeRegex(digitsOnly)}`) : null;
+
+    const candidates = await User.find({
+      school: schoolId,
+      active: true,
+      $or: [
+        { name: startsWithRegex },
+        { username: startsWithRegex },
+        ...(phoneRegex ? [{ phone: phoneRegex }] : []),
+        { name: containsRegex },
+        { username: containsRegex },
+      ],
+    })
+      .populate('role', 'role')
+      .select('_id name username email phone image role')
+      .limit(18)
+      .lean();
+
+    const normalizedQuery = query.toLowerCase();
+
+    const ranked = candidates
+      .map((entry) => {
+        const name = String(entry.name || '').toLowerCase();
+        const username = String(entry.username || '').toLowerCase();
+        const phone = String(entry.phone || '');
+
+        let score = 0;
+        if (name.startsWith(normalizedQuery)) score += 100;
+        else if (name.includes(normalizedQuery)) score += 60;
+
+        if (username.startsWith(normalizedQuery)) score += 90;
+        else if (username.includes(normalizedQuery)) score += 50;
+
+        if (digitsOnly && phone.startsWith(digitsOnly)) score += 95;
+        else if (digitsOnly && phone.includes(digitsOnly)) score += 55;
+
+        if (name === normalizedQuery || username === normalizedQuery || (digitsOnly && phone === digitsOnly)) {
+          score += 30;
+        }
+
+        return {
+          _id: entry._id.toString(),
+          name: entry.name,
+          username: entry.username,
+          email: entry.email,
+          phone: entry.phone,
+          image: entry.image,
+          role: entry.role?.role || '',
+          score,
+        };
+      })
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, limit)
+      .map(({ score, ...entry }) => entry);
+
+    return res.status(200).json(formatResponse(true, 'Users fetched successfully', ranked));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error searching users', null, error.message));
+  }
+};
+
 module.exports = {
   getMe,
   updateProfile,
   uploadProfileImage,
   getBasicProfile,
+  searchSchoolUsers,
 };

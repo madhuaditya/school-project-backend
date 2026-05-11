@@ -6,6 +6,7 @@ const {
   updateProfile,
   uploadProfileImage,
   getBasicProfile,
+  searchSchoolUsers,
 } = require('../controllers/profileCtrl');
 const { checkSubscriptionActive } = require("../middleware/subscriptionCheck");
 
@@ -21,6 +22,7 @@ r.post(
   upload.single('image'),
   uploadProfileImage
 );
+r.get('/search/users', validateUser, checkSubscriptionActive, searchSchoolUsers);
 r.get('/:id', validateUser, checkSubscriptionActive, getBasicProfile);
 
 module.exports = r;
