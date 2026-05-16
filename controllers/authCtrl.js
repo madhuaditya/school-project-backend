@@ -12,7 +12,10 @@ const Subscription = require('../models/subscription');
 const Student = require('../models/student');
 const ClassModel = require('../models/class');
 const { validateStudentAndAdminofSchool } = require('../middleware/ValidateRelation');
-
+const {
+  sendOTP,
+  verifyOTP,
+} = require('../utils/twilioService');
 // ==================== RESPONSE FORMAT ====================
 const formatResponse = (success, msg, data = null, error = null) => {
   return {
@@ -648,7 +651,69 @@ const login = async (req, res) => {
     
     const isMatch = await u.comparePassword(password);
     if (!isMatch) return res.status(401).json(formatResponse(false, 'Invalid credentials'));
-    
+    const phone = u.phone || u.smsPhone || u.whatsappPhone || '';
+    if(!phone) {
+      return res.status(400).json(formatResponse(false, 'No phone number associated with this account for OTP verification'));
+    }
+    const response = await sendOTPToPhone(phone);
+    console.log('OTP sent response: ', response);
+    if(!!response.success){
+      const token = jwt.sign({ _id: u._id }, process.env.JWT_OTP_SECRET, { expiresIn: '10m' });
+      return res.status(200).json(formatResponse(true, `OTP sent to xxxxx${phone.slice(-4)} successfully`, { token: token }));
+    }
+    else {
+      return res.status(500).json(formatResponse(false, 'Failed to send OTP please connect you administrator', null, response.error || 'Unknown error'));
+    }
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error during login', null, error.message));
+  }
+};
+const formatPhoneNumber = (phone) => {
+  phone = phone.replace(/\s+/g, "");
+
+  if (!phone.startsWith("+")) {
+    phone = `+91${phone}`;
+  }
+
+  return phone;
+};
+
+const sendOTPToPhone = async (phone) => {
+  try {
+
+    const response = await sendOTP(formatPhoneNumber(phone));
+
+    return {
+      success: true,
+      status: response.status,
+    }
+
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+};
+
+const verifyOTPToPhone = async (req, res) => {
+  try {
+    const { token, code } = req.body;
+    if(!token || !code) {
+      return res.status(400).json(formatResponse(false, 'Token and code are required for OTP verification'));
+    }
+    const decoded = jwt.verify(token, process.env.JWT_OTP_SECRET);
+    const userId = decoded._id;
+    const u = await User.findById(userId).populate('role', '_id role').populate('school', '_id schoolName email image');
+    if (!u) return res.status(401).json(formatResponse(false, 'Invalid token'));
+    const phone = u.phone || u.smsPhone || u.whatsappPhone || '';
+    if(!phone) {
+      return res.status(400).json(formatResponse(false, 'No phone number associated with this account for OTP verification'));
+    }
+    const formattedPhone = formatPhoneNumber(phone);
+    const response = await verifyOTP(formattedPhone, code);
+
+    if (response.status === "approved") {
     const at = genAT(u);
     const rt = genRT(u);
 
@@ -673,10 +738,13 @@ const login = async (req, res) => {
       school: u.school,
       image: u.image || "",
     }));
-  } catch (error) {
-    return res.status(500).json(formatResponse(false, 'Error during login', null, error.message));
+  } else {
+        return res.status(401).json(formatResponse(false, 'Invalid OTP', null, response.error || 'OTP verification failed'));
   }
-};
+  } catch (error) {
+        return res.status(500).json(formatResponse(false, 'Error during OTP verification', null, error.message));
+      }
+}
 
 // REFRESH
 const refresh = async (req, res) => {
@@ -1110,5 +1178,6 @@ module.exports = {
   getAllStaffInSchool,
   generateUniqueUsername,
   generateStudentId,
-  generateNextStudentRollNumber
+  generateNextStudentRollNumber,
+  verifyOTPToPhone,
 };

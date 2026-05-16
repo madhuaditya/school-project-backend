@@ -26,6 +26,7 @@ const {
   generateUniqueUsername,
   generateStudentId,
   generateNextStudentRollNumber,
+  verifyOTPToPhone,
 } = require("../controllers/authCtrl");
 const {
   validateRegister,
@@ -50,6 +51,7 @@ r.post(
   register,
 );
 r.post("/login", validateUserLogin, login);
+r.post("/verify-otp", verifyOTPToPhone);
 r.post("/refresh", refresh);
 r.post("/logout", logout);
 r.post("/change-password", validateUser, checkSubscriptionActive, changePassword);
