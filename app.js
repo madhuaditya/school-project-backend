@@ -27,6 +27,7 @@ const sanitizeResponse = require("./middleware/sanitizeResponse")
 const profileRoutes = require('./routes/profileRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const leaveRoutes = require('./routes/leaveRoutes');
+const calendarRoutes = require('./routes/calendarRoutes');
 const dotenv = require("dotenv")
 dotenv.config();
 const app = express();
@@ -71,6 +72,7 @@ app.use('/api/messaging', messagingRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/subscription', subscriptionRoutes);
 app.use('/api/leave', leaveRoutes);
+app.use('/api/calendar', calendarRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });

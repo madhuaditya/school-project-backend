@@ -4,6 +4,7 @@ const app = require('./app');
 const mongoose = require('mongoose');
 const http = require('http');
 const { initMessagingSocket } = require('./sockets/messagingSocket');
+const { startCalendarCleanupScheduler } = require('./services/calendarCleanup');
 
 // console.log("Connecting to MongoDB with URI: ", process.env.MONGO_URL);
 
@@ -23,6 +24,7 @@ mongoose
     console.log('MongoDB connected');
     const server = http.createServer(app);
     initMessagingSocket(server);
+    startCalendarCleanupScheduler();
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
