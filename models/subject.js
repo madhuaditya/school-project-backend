@@ -22,6 +22,11 @@ const subjectSchema = new mongoose.Schema({
     required: true
   },
 
+  active: {
+    type: Boolean,
+    default: true
+  },
+
   teacher: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Teacher',

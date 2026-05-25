@@ -72,6 +72,9 @@ const userSchema = new mongoose.Schema(
     pinCode: {
         type: String,
     },
+    country : {
+        type: String,
+    },
 
     gender: {
       type: String,

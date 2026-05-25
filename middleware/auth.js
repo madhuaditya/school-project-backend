@@ -27,16 +27,20 @@ const validateUser = (req, res, next) => {
 
     if(!school?._id && !user?._id) return res.sendStatus(444);
       // console.log("nhi fata hai yahan par 004");
-    if(user)
-    req.user = user;
-  else if(school) {
+    if (user) {
+      req.user = user;
+      req.user.authType = 'user';
+      req.user.isSchoolAccount = false;
+    } else if (school) {
     req.user = school;
     req.user.school = {
       _id: school._id,
       name: school.name,
       role: 'admin'
     };
-    }else {
+    req.user.authType = 'school';
+    req.user.isSchoolAccount = true;
+    } else {
       return res.sendStatus(444);
     }
     // console.log(req.user)
