@@ -22,6 +22,11 @@ const {
   reinistateUser,
   getAllAdminsInSchool,
   getSchoolInfo,
+  getMySchoolInfo,
+  updateMySchoolInfo,
+  uploadMySchoolLogo,
+  uploadMySchoolIdCardLogo,
+  uploadMySchoolPrincipalSignature,
   getAllStaffInSchool,
   generateUniqueUsername,
   generateStudentId,
@@ -38,7 +43,9 @@ const {
 } = require("../middleware/validate");
 const { allow } = require("../middleware/role");
 const { validateUser } = require("../middleware/auth");
+const { requireSchoolAccount } = require("../middleware/schoolAccount");
 const { checkSubscriptionActive } = require("../middleware/subscriptionCheck");
+const upload = require('../middleware/upload');
 
 const r = express.Router();
 
@@ -75,6 +82,11 @@ r.post("/school/refresh", refreshSchool);
 r.post("/school/logout", logoutSchool);
 r.post("/school/forgot-password", sendSchoolForgotPasswordEmail);
 r.post("/school/reset-password", resetPasswordSchool);
+r.get("/school/me", validateUser, requireSchoolAccount, getMySchoolInfo);
+r.put("/school/me", validateUser, requireSchoolAccount, updateMySchoolInfo);
+r.put("/school/me/image", validateUser, requireSchoolAccount, upload.single('image'), uploadMySchoolLogo);
+r.put("/school/me/id-card-logo", validateUser, requireSchoolAccount, upload.single('logo'), uploadMySchoolIdCardLogo);
+r.put("/school/me/principal-signature", validateUser, requireSchoolAccount, upload.single('signature'), uploadMySchoolPrincipalSignature);
 r.get("/school/:id", getSchoolInfo);
 
 module.exports = r;

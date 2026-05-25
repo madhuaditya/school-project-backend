@@ -28,25 +28,26 @@ const profileRoutes = require('./routes/profileRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const leaveRoutes = require('./routes/leaveRoutes');
 const calendarRoutes = require('./routes/calendarRoutes');
+const schoolManagementRoutes = require('./routes/schoolManagementRoutes');
 const dotenv = require("dotenv")
 dotenv.config();
 const app = express();
 
 // Disable ETag generation to avoid conditional 304 responses on API endpoints.
-// app.set('etag', false);
+app.set('etag', false);
 
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
-// app.use('/api', (req, res, next) => {
-//   res.set({
-//     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-//     Pragma: 'no-cache',
-//     Expires: '0',
-//     'Surrogate-Control': 'no-store',
-//   });
-//   next();
-// });
+app.use('/api', (req, res, next) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+    'Surrogate-Control': 'no-store',
+  });
+  next();
+});
 app.use('/api/auth', authRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/class", classRoutes)
@@ -73,6 +74,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/subscription', subscriptionRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/calendar', calendarRoutes);
+app.use('/api/school-management', schoolManagementRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });

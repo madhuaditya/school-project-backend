@@ -11,7 +11,11 @@ const Admin = require('../models/admin');
 const Subscription = require('../models/subscription');
 const Student = require('../models/student');
 const ClassModel = require('../models/class');
+const cloudinary = require('../config/cloudinary');
 const { validateStudentAndAdminofSchool } = require('../middleware/ValidateRelation');
+const { UsernameGenerator } = require("@siantech/username-generator");
+const generator = new UsernameGenerator();
+
 const {
   sendOTP,
   verifyOTP,
@@ -49,6 +53,18 @@ const serializeSubscription = (subscription) => {
     updatedAt: subscription.updatedAt,
   };
 };
+
+const uploadBufferToCloudinary = (buffer, folderName) => new Promise((resolve, reject) => {
+  const stream = cloudinary.uploader.upload_stream(
+    { folder: folderName },
+    (error, result) => {
+      if (error) return reject(error);
+      return resolve(result);
+    }
+  );
+
+  stream.end(buffer);
+});
 
 const DEFAULT_TRIAL_FEATURES = [
   'attendance',
@@ -124,30 +140,27 @@ const generateUniqueUsername = async (req, res) => {
       return res.status(400).json(formatResponse(false, 'Invalid school mapping for admin'));
     }
 
-    const school = await School.findById(schoolId).select('_id schoolId schoolName');
-    if (!school) {
-      return res.status(404).json(formatResponse(false, 'School not found'));
-    }
-
-    const schoolCode = getSchoolCode(school);
-    const roleCode = toSafeLower(role).slice(0, 2) || 'us';
-    const baseName = toSafeLower(name).slice(0, 10) || 'user';
-    const prefix = `${schoolCode.toLowerCase()}_${roleCode}${baseName}`;
+    // Generate username: <last2DigitsOfYear><month><firstName>_<incrementValue>
+    const now = new Date();
+    const year = String(now.getFullYear()).slice(-2);
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const firstName = toSafeLower(name.split(/\s+/)[0]).slice(0, 14) || 'user';
+    const prefix = `${firstName}${year}${month}`;
 
     let username = prefix;
     let suffix = 1;
     while (await User.exists({ username })) {
-      username = `${prefix}${suffix}`;
+      username = `${prefix}_${suffix}`;
       suffix += 1;
     }
 
     return res.status(200).json(
       formatResponse(true, 'Username generated successfully', {
         username,
-        pattern: `${schoolCode}_<role><name><optional-number>`,
       })
     );
   } catch (error) {
+    console.log('Error generating username: ', error);
     return res.status(500).json(formatResponse(false, 'Error generating username', null, error.message));
   }
 };
@@ -737,6 +750,7 @@ const verifyOTPToPhone = async (req, res) => {
       phone: u.phone,
       school: u.school,
       image: u.image || "",
+      type: 'user',
     }));
   } else {
         return res.status(401).json(formatResponse(false, 'Invalid OTP', null, response.error || 'OTP verification failed'));
@@ -1028,8 +1042,10 @@ const loginSchool = async (req, res) => {
         image: sch.image, 
         role: sch.role,
         subscription: serializeSubscription(subscription),
+        type: 'school',
       }, 
       token,
+      type: 'school',
       refreshToken,
       subscription: serializeSubscription(subscription)
     }));
@@ -1154,6 +1170,149 @@ const getSchoolInfo = async (req, res) => {
   }
 };
 
+const getMySchoolInfo = async (req, res) => {
+  try {
+    const schoolId = req.user?._id;
+
+    if (!schoolId || !mongoose.Types.ObjectId.isValid(schoolId)) {
+      return res.status(400).json(formatResponse(false, 'School account is required'));
+    }
+
+    const sch = await School.findById(schoolId)
+      .select('_id schoolId schoolName phone email address city state pinCode image slug idCardLogo idCardSettings createdAt updatedAt')
+      .populate('role', 'role')
+      .populate('subscription');
+
+    if (!sch) {
+      return res.status(404).json(formatResponse(false, 'School not found'));
+    }
+
+    return res.status(200).json(formatResponse(true, 'School profile retrieved', sch));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error retrieving school profile', null, error.message));
+  }
+};
+
+const updateMySchoolInfo = async (req, res) => {
+  try {
+    const schoolId = req.user?._id;
+
+    if (!schoolId || !mongoose.Types.ObjectId.isValid(schoolId)) {
+      return res.status(400).json(formatResponse(false, 'School account is required'));
+    }
+
+    const sch = await School.findById(schoolId);
+    if (!sch) {
+      return res.status(404).json(formatResponse(false, 'School not found'));
+    }
+
+    const {
+      schoolName,
+      phone,
+      email,
+      address,
+      city,
+      state,
+      pinCode,
+      image,
+      slug,
+      idCardLogo,
+      idCardSettings,
+    } = req.body;
+
+    if (schoolName !== undefined) sch.schoolName = String(schoolName).trim();
+    if (phone !== undefined) sch.phone = String(phone).trim();
+    if (email !== undefined) sch.email = String(email).trim().toLowerCase();
+    if (address !== undefined) sch.address = String(address).trim();
+    if (city !== undefined) sch.city = String(city).trim();
+    if (state !== undefined) sch.state = String(state).trim();
+    if (pinCode !== undefined) sch.pinCode = String(pinCode).trim();
+    if (image !== undefined) sch.image = String(image).trim();
+    if (slug !== undefined) sch.slug = String(slug).trim();
+    if (idCardLogo !== undefined) sch.idCardLogo = String(idCardLogo).trim();
+    if (idCardSettings && typeof idCardSettings === 'object') {
+      sch.idCardSettings = {
+        ...sch.idCardSettings,
+        ...idCardSettings,
+      };
+    }
+
+    if (!sch.schoolName || !sch.email || !sch.address || !sch.city || !sch.state || !sch.pinCode) {
+      return res.status(400).json(formatResponse(false, 'School name, email, address, city, state, and pin code are required'));
+    }
+
+    await sch.save();
+
+    const updated = await School.findById(schoolId)
+      .select('_id schoolId schoolName phone email address city state pinCode image slug idCardLogo idCardSettings createdAt updatedAt')
+      .populate('role', 'role')
+      .populate('subscription');
+
+    return res.status(200).json(formatResponse(true, 'School profile updated successfully', updated));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error updating school profile', null, error.message));
+  }
+};
+
+const uploadMySchoolLogo = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json(formatResponse(false, 'School logo image is required'));
+
+    const school = await School.findById(req.user?._id);
+    if (!school) return res.status(404).json(formatResponse(false, 'School not found'));
+
+    const uploadResult = await uploadBufferToCloudinary(req.file.buffer, 'schools/profile/logo');
+    school.image = uploadResult.secure_url;
+    await school.save();
+
+    return res.status(200).json(formatResponse(true, 'School logo updated successfully', {
+      image: uploadResult.secure_url,
+    }));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error uploading school logo', null, error.message));
+  }
+};
+
+const uploadMySchoolIdCardLogo = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json(formatResponse(false, 'ID card logo image is required'));
+
+    const school = await School.findById(req.user?._id);
+    if (!school) return res.status(404).json(formatResponse(false, 'School not found'));
+
+    const uploadResult = await uploadBufferToCloudinary(req.file.buffer, 'schools/id-cards/logos');
+    school.idCardLogo = uploadResult.secure_url;
+    await school.save();
+
+    return res.status(200).json(formatResponse(true, 'ID card logo updated successfully', {
+      idCardLogo: uploadResult.secure_url,
+    }));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error uploading ID card logo', null, error.message));
+  }
+};
+
+const uploadMySchoolPrincipalSignature = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json(formatResponse(false, 'Principal signature image is required'));
+
+    const school = await School.findById(req.user?._id);
+    if (!school) return res.status(404).json(formatResponse(false, 'School not found'));
+
+    const uploadResult = await uploadBufferToCloudinary(req.file.buffer, 'schools/id-cards/signatures');
+
+    if (!school.idCardSettings) school.idCardSettings = {};
+    school.idCardSettings.principalSignatureUrl = uploadResult.secure_url;
+    await school.save();
+
+    return res.status(200).json(formatResponse(true, 'Principal signature updated successfully', {
+      principalSignatureUrl: uploadResult.secure_url,
+    }));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error uploading principal signature', null, error.message));
+  }
+};
+
 module.exports = {
   register,
   registerSchool,
@@ -1175,6 +1334,11 @@ module.exports = {
   deletePermanently,
   reinistateUser,
   getSchoolInfo,
+  getMySchoolInfo,
+  updateMySchoolInfo,
+  uploadMySchoolLogo,
+  uploadMySchoolIdCardLogo,
+  uploadMySchoolPrincipalSignature,
   getAllStaffInSchool,
   generateUniqueUsername,
   generateStudentId,
