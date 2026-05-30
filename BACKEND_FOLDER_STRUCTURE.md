@@ -57,6 +57,7 @@ All backend APIs are mounted from `app.js` under `/api/*`.
 | leaveRoutes.js | `/api/leave` |
 | calendarRoutes.js | `/api/calendar` |
 | schoolManagementRoutes.js | `/api/school-management` |
+| downloadRoutes.js | `/api/download` |
 
 ## Backend Areas
 
@@ -65,7 +66,7 @@ All backend APIs are mounted from `app.js` under `/api/*`.
 | `config/` | Database and third-party service configuration such as MongoDB and Cloudinary |
 | `controllers/` | Request handlers and business logic |
 | `middleware/` | Authentication, authorization, validation, upload, and response helpers |
-| `models/` | Mongoose schemas and indexes |
+| `models/` | Mongoose schemas and indexes, including download audit and quota policy models |
 | `routes/` | Express route definitions |
 | `services/` | Shared service helpers |
 | `sockets/` | Socket.IO or realtime messaging setup |
@@ -86,3 +87,4 @@ All backend APIs are mounted from `app.js` under `/api/*`.
 - Most endpoints return a JSON envelope with `success`, `msg`, optional `data`, and optional `error`.
 - Protected routes typically require `validateUser`, `allow(...)`, or `checkSubscriptionActive` depending on the resource.
 - File and report endpoints may return HTML, PDF, CSV, Excel, or uploaded asset metadata instead of plain JSON.
+- Download exports are now handled through `/api/download` and should log usage in `models/downloadLog.js`.

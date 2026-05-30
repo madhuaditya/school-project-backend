@@ -68,6 +68,7 @@ See [BACKEND_FOLDER_STRUCTURE.md](./BACKEND_FOLDER_STRUCTURE.md) for the backend
 | `leaveRoutes.js` | `/api/leave` |
 | `calendarRoutes.js` | `/api/calendar` |
 | `schoolManagementRoutes.js` | `/api/school-management` |
+| `downloadRoutes.js` | `/api/download` |
 
 ## 1. authRoutes.js
 
@@ -525,6 +526,24 @@ Base path: `/api/school-management`
 | GET | `/subscription` | None | Current subscription | `200`, `400`, `500` |
 | PUT | `/subscription` | Subscription fields | Updated subscription | `200`, `404`, `500` |
 | PUT | `/subscription/renew` | Renewal payload | Renewed subscription | `200`, `404`, `500` |
+
+## 27. downloadRoutes.js
+
+Base path: `/api/download`
+
+| Method | Endpoint | Access | Request | Success response | Status codes |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/export` | Authenticated admin/teacher with active subscription | Body `module`, `format`, optional `filters` | CSV, Excel, or PDF download | `200`, `400`, `403`, `404`, `429`, `500` |
+| GET | `/history` | Authenticated admin/teacher with active subscription | Query filters and pagination | Download audit history | `200`, `400`, `403`, `500` |
+| GET | `/limits` | Authenticated admin/teacher with active subscription | None | Current daily limit and current usage | `200`, `400`, `403`, `500` |
+| PUT | `/limits` | Authenticated admin with active subscription | `dailyLimit`, optional `enabledRoles`, `notes` | Updated download policy | `200`, `400`, `403`, `500` |
+
+### Download Notes
+
+- Daily quota is enforced server-side using `models/downloadLog.js`.
+- The first release supports CSV, Excel, and PDF exports.
+- Teachers can only export class, subject, student, attendance, and result data from their assigned scope.
+- The 11th same-day successful download attempt returns `429 Too Many Requests` with a quota error.
 
 ## Notes
 

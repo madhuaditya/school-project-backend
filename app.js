@@ -29,6 +29,7 @@ const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const leaveRoutes = require('./routes/leaveRoutes');
 const calendarRoutes = require('./routes/calendarRoutes');
 const schoolManagementRoutes = require('./routes/schoolManagementRoutes');
+const downloadRoutes = require('./routes/downloadRoutes');
 const dotenv = require("dotenv")
 dotenv.config();
 const app = express();
@@ -75,6 +76,7 @@ app.use('/api/subscription', subscriptionRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/school-management', schoolManagementRoutes);
+app.use('/api/download', downloadRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });
