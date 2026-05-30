@@ -1,6 +1,7 @@
 const axios = require('axios');
 const Alert = require('../models/alert');
 const sendMail = require('./mailer');
+const { sendExpoPushNotifications } = require('./pushNotifications');
 
 const buildWebhookHeaders = (token) => {
   if (!token) return {};
@@ -44,6 +45,22 @@ const sendAlert = async ({ schoolId, createdBy, recipient, title, message }) => 
     providerMessageId: String(alert._id),
     responsePayload: { alertId: alert._id },
   });
+
+  try {
+    await sendExpoPushNotifications({
+      pushTokens: recipient?.pushTokens || [],
+      title,
+      body: message,
+      data: {
+        type: 'alert',
+        screen: 'my-alerts',
+        alertId: String(alert._id),
+        schoolId: String(schoolId),
+      },
+    });
+  } catch (error) {
+    console.warn('Expo push delivery failed for alert broadcast:', error.message);
+  }
 };
 
 const sendEmail = async ({ recipient, subject, title, message }) => {

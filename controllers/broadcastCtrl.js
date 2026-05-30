@@ -56,7 +56,7 @@ const resolveRecipients = async ({ schoolId, userIds, roleNames, classIds }) => 
       active: true,
     })
       .populate('role', 'role')
-      .select('_id name email phone smsPhone whatsappPhone telegramChatId role school active')
+      .select('_id name email phone smsPhone whatsappPhone telegramChatId pushTokens role school active')
       .lean();
     attachUsers(directUsers);
   }
@@ -72,7 +72,7 @@ const resolveRecipients = async ({ schoolId, userIds, roleNames, classIds }) => 
         active: true,
       })
         .populate('role', 'role')
-        .select('_id name email phone smsPhone whatsappPhone telegramChatId role school active')
+        .select('_id name email phone smsPhone whatsappPhone telegramChatId pushTokens role school active')
         .lean();
       attachUsers(roleUsers);
     }
@@ -123,7 +123,7 @@ const resolveRecipients = async ({ schoolId, userIds, roleNames, classIds }) => 
         active: true,
       })
         .populate('role', 'role')
-        .select('_id name email phone smsPhone whatsappPhone telegramChatId role school active')
+        .select('_id name email phone smsPhone whatsappPhone telegramChatId pushTokens role school active')
         .lean();
       attachUsers(classUsers);
     }

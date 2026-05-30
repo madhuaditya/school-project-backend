@@ -4,6 +4,7 @@ const upload = require('../middleware/upload');
 const {
   getMe,
   updateProfile,
+  registerPushToken,
   uploadProfileImage,
   getBasicProfile,
   searchSchoolUsers,
@@ -15,6 +16,7 @@ const r = express.Router();
 r.get('/me', validateUser, checkSubscriptionActive, getMe);
 r.put('/me', validateUser, checkSubscriptionActive, updateProfile);
 r.put('/update', validateUser, checkSubscriptionActive, updateProfile);
+r.put('/push-token', validateUser, checkSubscriptionActive, registerPushToken);
 r.post(
   '/me/avatar',
   validateUser,

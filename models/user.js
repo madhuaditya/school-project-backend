@@ -55,6 +55,11 @@ const userSchema = new mongoose.Schema(
       type: String,
     },
 
+    pushTokens: {
+      type: [String],
+      default: [],
+    },
+
     role: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Role',
