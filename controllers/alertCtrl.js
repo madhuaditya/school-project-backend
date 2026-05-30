@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Alert = require("../models/alert");
 const User = require("../models/user");
+const { sendExpoPushNotifications } = require('../utils/pushNotifications');
 
 const formatResponse = (success, msg, data = null, error = null) => {
   return {
@@ -21,7 +22,9 @@ const createAlert = async (req, res) => {
       return res.status(400).json(formatResponse(false, "userId, title, and message are required"));
     }
 
-    const targetUser = await User.findById(userId).populate("school", "_id");
+    const targetUser = await User.findById(userId)
+      .select('_id name email pushTokens school')
+      .populate("school", "_id");
     if (!targetUser) {
       return res.status(404).json(formatResponse(false, "Target user not found"));
     }
@@ -45,6 +48,21 @@ const createAlert = async (req, res) => {
       .populate("createdFor", "_id name email")
       .populate("createdBy", "_id name email")
       .populate("school", "_id schoolName");
+
+    try {
+      await sendExpoPushNotifications({
+        pushTokens: targetUser.pushTokens || [],
+        title,
+        body: message,
+        data: {
+          type: 'alert',
+          screen: 'my-alerts',
+          alertId: String(alert._id),
+        },
+      });
+    } catch (error) {
+      console.warn('Expo push delivery failed for direct alert:', error.message);
+    }
 
     return res
       .status(201)

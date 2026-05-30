@@ -3,6 +3,8 @@ const Leave = require("../models/leave");
 const Attendance = require("../models/attendance");
 const Student = require("../models/student");
 const Alert = require("../models/alert");
+const User = require("../models/user");
+const { sendExpoPushNotifications } = require('../utils/pushNotifications');
 
 const formatResponse = (success, msg, data = null, error = null) => ({
   success,
@@ -438,6 +440,21 @@ const reviewLeave = async (req, res) => {
       viewed: false,
       viewedAt: null,
     });
+
+    try {
+      const applicantUser = await User.findById(leaveDoc.applicantUser).select('_id pushTokens').lean();
+      await sendExpoPushNotifications({
+        pushTokens: applicantUser?.pushTokens || [],
+        title: alertTitle,
+        body: alertMessage,
+        data: {
+          type: 'alert',
+          screen: 'my-alerts',
+        },
+      });
+    } catch (error) {
+      console.warn('Expo push delivery failed for leave alert:', error.message);
+    }
 
     return res.status(200).json(
       formatResponse(true, `Leave request ${leaveDoc.status} successfully`, {

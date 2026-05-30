@@ -118,6 +118,29 @@ const updateProfile = async (req, res) => {
   }
 };
 
+const registerPushToken = async (req, res) => {
+  try {
+    const nextPushToken = typeof req.body?.pushToken === 'string' ? req.body.pushToken.trim() : '';
+
+    if (!nextPushToken) {
+      return res.status(400).json(formatResponse(false, 'pushToken is required'));
+    }
+
+    const u = await User.findById(req.user._id);
+    if (!u) return res.status(404).json(formatResponse(false, 'User not found'));
+
+    const currentTokens = Array.isArray(u.pushTokens) ? u.pushTokens : [];
+    if (!currentTokens.includes(nextPushToken)) {
+      u.pushTokens = [...currentTokens, nextPushToken];
+      await u.save();
+    }
+
+    return res.status(200).json(formatResponse(true, 'Push token registered successfully'));
+  } catch (error) {
+    return res.status(500).json(formatResponse(false, 'Error registering push token', null, error.message));
+  }
+};
+
 // UPLOAD PROFILE IMAGE
 const uploadProfileImage = async (req, res) => {
   try {
@@ -278,6 +301,7 @@ const searchSchoolUsers = async (req, res) => {
 module.exports = {
   getMe,
   updateProfile,
+  registerPushToken,
   uploadProfileImage,
   getBasicProfile,
   searchSchoolUsers,

@@ -4,6 +4,47 @@ const Class = require("../models/class");
 const Student = require("../models/student");
 const Teacher = require("../models/teacher");
 const Role    = require("../models/role")
+const moment = require("moment-timezone");
+
+const IST_TIMEZONE = "Asia/Kolkata";
+
+const momentIst = (value) => {
+  if (value === undefined || value === null) {
+    return moment().tz(IST_TIMEZONE);
+  }
+
+  return moment.tz(value, IST_TIMEZONE);
+};
+
+const startOfIstDay = (value) => momentIst(value).startOf("day").toDate();
+
+const endOfIstDay = (value) => momentIst(value).endOf("day").toDate();
+
+const buildIstMonthRange = (year, month) => {
+  const start = moment.tz(`${year}-${month}-01`, "YYYY-M-D", IST_TIMEZONE).startOf("day");
+
+  if (!start.isValid()) {
+    return { error: "Invalid month or year value" };
+  }
+
+  return {
+    startDate: start.toDate(),
+    endDate: start.clone().endOf("month").toDate(),
+  };
+};
+
+const buildIstYearRange = (year) => {
+  const start = moment.tz(`${year}-01-01`, "YYYY-M-D", IST_TIMEZONE).startOf("day");
+
+  if (!start.isValid()) {
+    return { error: "Invalid year value" };
+  }
+
+  return {
+    startDate: start.toDate(),
+    endDate: start.clone().endOf("year").toDate(),
+  };
+};
 
 // ==================== RESPONSE FORMAT ====================
 const formatResponse = (success, msg, data = null, error = null) => {
@@ -22,35 +63,45 @@ const checkUserSchool = async (userId, schoolId) => {
 };
 
 const parseDashboardDateRange = (startDateValue, endDateValue) => {
-  const startDate = new Date(startDateValue);
-  const endDate = new Date(endDateValue);
+  const startDate = momentIst(startDateValue).startOf("day");
+  const endDate = momentIst(endDateValue).endOf("day");
 
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  if (!startDate.isValid() || !endDate.isValid()) {
     return { error: "Invalid startDate or endDate" };
   }
 
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(23, 59, 59, 999);
-
-  if (startDate > endDate) {
+  if (startDate.isAfter(endDate)) {
     return { error: "startDate cannot be greater than endDate" };
   }
 
-  return { startDate, endDate };
+  return { startDate: startDate.toDate(), endDate: endDate.toDate() };
 };
 
 const formatDateKey = (value) => {
-  const date = new Date(value);
-  return date.toISOString().slice(0, 10);
+  return momentIst(value).format("YYYY-MM-DD");
+};
+
+const toIstAttendancePayload = (attendanceDoc) => {
+  const attendance = attendanceDoc?.toObject ? attendanceDoc.toObject() : attendanceDoc;
+
+  if (!attendance) {
+    return attendance;
+  }
+
+  return {
+    ...attendance,
+    date: momentIst(attendance.date).format("YYYY-MM-DD"),
+  };
 };
 
 const getDateKeysInRange = (startDate, endDate) => {
   const keys = [];
-  const cursor = new Date(startDate);
+  const cursor = momentIst(startDate).startOf("day");
+  const lastDay = momentIst(endDate).startOf("day");
 
-  while (cursor <= endDate) {
-    keys.push(formatDateKey(cursor));
-    cursor.setDate(cursor.getDate() + 1);
+  while (cursor.isSameOrBefore(lastDay, "day")) {
+    keys.push(cursor.format("YYYY-MM-DD"));
+    cursor.add(1, "day");
   }
 
   return keys;
@@ -145,11 +196,11 @@ const markAttendance = async (req, res) => {
       );
     }
 
-    const attendanceDate = new Date(date);
-    if (Number.isNaN(attendanceDate.getTime())) {
+    const attendanceMoment = momentIst(date).startOf("day");
+    if (!attendanceMoment.isValid()) {
       return res.status(400).json(formatResponse(false, "Invalid date value"));
     }
-    attendanceDate.setHours(0, 0, 0, 0);
+    const attendanceDate = attendanceMoment.toDate();
 
     // Check if user exists
     const targetUser = await User.findById(userId).populate('role', 'role').populate('school', '_id schoolName');
@@ -167,8 +218,12 @@ const markAttendance = async (req, res) => {
     });
 
     if (existingAttendance) {
-      return res.status(409).json(
-        formatResponse(false, "Attendance already marked for this user and date", existingAttendance)
+      existingAttendance.status = status;
+      existingAttendance.remarks = remarks || null;
+      existingAttendance.updatedBy = currentUserId;
+      await existingAttendance.save();
+      return res.status(200).json(
+        formatResponse(true, "Attendance updated successfully", existingAttendance)
       );
     }
 
@@ -224,8 +279,7 @@ const updateAttendance = async (req, res) => {
     const { userId, date, status, remarks, classId } = req.body;
     const currentUserId = req.user._id;
     const schoolId = req.user.school._id;
-    const currentUserRole = req.user.role.role;
-    
+    const currentUserRole = req.user.role.role;      
 
     if(!schoolId) {
       return res.status(400).json(formatResponse(false, "Your account is not associated with any school"));
@@ -244,11 +298,11 @@ const updateAttendance = async (req, res) => {
       );
     }
 
-    const attendanceDate = new Date(date);
-    if (Number.isNaN(attendanceDate.getTime())) {
+    const attendanceMoment = momentIst(date).startOf("day");
+    if (!attendanceMoment.isValid()) {
       return res.status(400).json(formatResponse(false, "Invalid date value"));
     }
-    attendanceDate.setHours(0, 0, 0, 0);
+    const attendanceDate = attendanceMoment.toDate();
 
     // Check if user exists
     const targetUser = await User.findById(userId).populate('role', 'role').populate('school', '_id schoolName');
@@ -274,19 +328,19 @@ const updateAttendance = async (req, res) => {
       existingAttendance.remarks = remarks || null;
       existingAttendance.updatedBy = currentUserId;
       await existingAttendance.save();
-      return res.status(200).json(formatResponse(true, "Attendance updated successfully", existingAttendance));
+      return res.status(200).json(formatResponse(true, "Attendance updated successfully", toIstAttendancePayload(existingAttendance)));
     } else if (currentUserRole === "teacher" && (targetUser.role.role === "student" || targetUser._id.toString() === currentUserId.toString())) {
       existingAttendance.status = status;
       existingAttendance.remarks = remarks || null;
       existingAttendance.updatedBy = currentUserId;
       await existingAttendance.save();
-      return res.status(200).json(formatResponse(true, "Attendance updated successfully", existingAttendance));
+      return res.status(200).json(formatResponse(true, "Attendance updated successfully", toIstAttendancePayload(existingAttendance)));
     } else if (currentUserRole === "staff" && targetUser._id.toString() === currentUserId.toString()) {
       existingAttendance.status = status;
       existingAttendance.remarks = remarks || null;
       existingAttendance.updatedBy = currentUserId;
       await existingAttendance.save();
-      return res.status(200).json(formatResponse(true, "Attendance updated successfully", existingAttendance));
+      return res.status(200).json(formatResponse(true, "Attendance updated successfully", toIstAttendancePayload(existingAttendance)));
     } else {
       return res.status(403).json(formatResponse(false, "Unauthorized to update attendance"));
     }
@@ -329,20 +383,25 @@ const getAttendance = async (req, res) => {
 
     // Filter by month and year if provided
     if (month && year) {
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0);
+      const range = buildIstMonthRange(Number(year), Number(month));
+      if (range.error) {
+        return res.status(400).json(formatResponse(false, range.error));
+      }
       filter.date = {
-        $gte: startDate,
-        $lte: endDate,
+        $gte: range.startDate,
+        $lte: range.endDate,
       };
     } else if (year) {
-      const startDate = new Date(year, 0, 1);
-      const endDate = new Date(year, 11, 31);
+      const range = buildIstYearRange(Number(year));
+      if (range.error) {
+        return res.status(400).json(formatResponse(false, range.error));
+      }
       filter.date = {
-        $gte: startDate,
-        $lte: endDate,
+        $gte: range.startDate,
+        $lte: range.endDate,
       };
     }
+    // console.log("Fetching attendance with filter:", filter);
 
     const attendanceRecords = await Attendance.find(filter)
       .populate("user", "_id name email phone")
@@ -355,22 +414,24 @@ const getAttendance = async (req, res) => {
       return res.status(200).json(formatResponse(false, "No attendance records found"));
     }
 
+    const attendance = attendanceRecords.map((record) => toIstAttendancePayload(record));
+
     // Calculate summary
     const summary = {
-      total: attendanceRecords.length,
-      present: attendanceRecords.filter((a) => a.status === "present").length,
-      absent: attendanceRecords.filter((a) => a.status === "absent").length,
-      leave: attendanceRecords.filter((a) => a.status === "leave").length,
+      total: attendance.length,
+      present: attendance.filter((a) => a.status === "present").length,
+      absent: attendance.filter((a) => a.status === "absent").length,
+      leave: attendance.filter((a) => a.status === "leave").length,
       presentPercentage: (
-        (attendanceRecords.filter((a) => a.status === "present").length /
-          attendanceRecords.length) *
+        (attendance.filter((a) => a.status === "present").length /
+          attendance.length) *
         100
       ).toFixed(2),
     };
 
     return res.status(200).json(
       formatResponse(true, "Attendance records fetched successfully", {
-        attendance: attendanceRecords,
+        attendance,
         summary,
         filters: { month, year },
       })
@@ -424,18 +485,22 @@ const getClassAttendance = async (req, res) => {
     };
 
     if (month && year) {
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0);
+      const range = buildIstMonthRange(Number(year), Number(month));
+      if (range.error) {
+        return res.status(400).json(formatResponse(false, range.error));
+      }
       filter.date = {
-        $gte: startDate,
-        $lte: endDate,
+        $gte: range.startDate,
+        $lte: range.endDate,
       };
     } else if (year) {
-      const startDate = new Date(year, 0, 1);
-      const endDate = new Date(year, 11, 31);
+      const range = buildIstYearRange(Number(year));
+      if (range.error) {
+        return res.status(400).json(formatResponse(false, range.error));
+      }
       filter.date = {
-        $gte: startDate,
-        $lte: endDate,
+        $gte: range.startDate,
+        $lte: range.endDate,
       };
     }
 
@@ -490,11 +555,13 @@ const getStaffAttendance = async (req, res) => {
     };
 
     if (month && year) {
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0);
+      const range = buildIstMonthRange(Number(year), Number(month));
+      if (range.error) {
+        return res.status(400).json(formatResponse(false, range.error));
+      }
       filter.date = {
-        $gte: startDate,
-        $lte: endDate,
+        $gte: range.startDate,
+        $lte: range.endDate,
       };
     }
 
@@ -555,11 +622,13 @@ const getTeacherAttendance = async (req, res) => {
     };
 
     if (month && year) {
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0);
+      const range = buildIstMonthRange(Number(year), Number(month));
+      if (range.error) {
+        return res.status(400).json(formatResponse(false, range.error));
+      }
       filter.date = {
-        $gte: startDate,
-        $lte: endDate,
+        $gte: range.startDate,
+        $lte: range.endDate,
       };
     }
 
@@ -1022,9 +1091,9 @@ const getTodayAttendace = async (req, res) => {
     }
 
     // Calculate today's date range correctly
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    const today = momentIst();
+    const startOfDay = today.clone().startOf("day").toDate();
+    const endOfDay = today.clone().endOf("day").toDate();
 
     // Build filter with correct date range
     const filter = {
@@ -1113,9 +1182,9 @@ const getTodayClassAttendance = async (req, res) => {
     }
 
     // Calculate today's date range
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    const today = momentIst();
+    const startOfDay = today.clone().startOf("day").toDate();
+    const endOfDay = today.clone().endOf("day").toDate();
 
     // Fetch all students in class
     const students = await Student.find({ class: classId })
@@ -1152,9 +1221,11 @@ const getTodayClassAttendance = async (req, res) => {
         userId: userIdStr,
         name: student.user?.name,
         email: student.user?.email,
+        image: student.user?.image || null,
         phone: student.user?.phone,
         rollNumber: student.rollNumber,
         studentIdCode: student.studentId,
+        studentId: student.studentId,
         fatherName: student.fatherName,
         motherName: student.motherName,
         status: attendance?.status || "not-marked",
@@ -1223,9 +1294,9 @@ const getTodayAttendanceRole = async (req, res) => {
 
 
     // Calculate today's date range
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    const today = momentIst();
+    const startOfDay = today.clone().startOf("day").toDate();
+    const endOfDay = today.clone().endOf("day").toDate();
 
     // Fetch all students in class
     const users = await User.find({ role: roleRec._id, school: currentUserSchool })
@@ -1344,14 +1415,16 @@ const bulkMarkAttendance = async (req, res) => {
     }
 
     // Determine attendance date: use provided date or default to today
-    let attendanceDate = new Date();
+    let attendanceDate = momentIst().startOf("day").toDate();
+    console.log("Bulk marking attendance. Provided date:", date);
     if (date) {
-      attendanceDate = new Date(date);
-      if (Number.isNaN(attendanceDate.getTime())) {
+      const parsedDate = momentIst(date).startOf("day");
+      if (!parsedDate.isValid()) {
         return res.status(400).json(formatResponse(false, "Invalid date value"));
       }
+      attendanceDate = parsedDate.toDate();
     }
-    attendanceDate.setHours(0, 0, 0, 0);
+    console.log("Bulk marking attendance for date (IST):", formatDateKey(attendanceDate));
 
     // Validate all records
     const validatedRecords = [];
@@ -1414,13 +1487,16 @@ const bulkMarkAttendance = async (req, res) => {
           date: attendanceDate,
           school: currentUserSchool
         });
-
+        // console.log("Existing record date (IST):", existingAttendance ? formatDateKey(existingAttendance.date) : "none");
         if (existingAttendance) {
           // Update existing record
+          // console.log(`Updating attendance for user ${record.userId} on ${formatDateKey(attendanceDate)}`);
           existingAttendance.status = record.status;
           existingAttendance.remarks = record.remarks;
           existingAttendance.updatedBy = currentUserId;
           existingAttendance.class = record.classId || existingAttendance.class;
+          existingAttendance.updatedAt = momentIst().toDate();
+          existingAttendance.date = attendanceDate; // Ensure date is consistent
           await existingAttendance.save();
           results.updated.push({
             userId: record.userId,
@@ -1429,6 +1505,7 @@ const bulkMarkAttendance = async (req, res) => {
           });
         } else {
           // Create new record
+          // console.log("Creating attendance for date (IST):", formatDateKey(attendanceDate));
           const newAttendance = await Attendance.create({
             user: record.userId,
             status: record.status,
