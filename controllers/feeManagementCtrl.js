@@ -441,6 +441,66 @@ const getStudentFeeByMonthYear = async (req, res) => {
   }
 };
 
+
+const getStudentByClassFeeByMonthYear = async (req, res) => {
+  try {
+    const {  month, year } = req.params;
+    const { classId } = req.body;
+    const schoolId = req.user.school._id || req.user.school.toString() || null;
+
+    if(!schoolId){
+      return res.status(400).json(formatResponse(false, "School context is required"));
+    }
+
+    if (!classId || !mongoose.Types.ObjectId.isValid(classId)) {
+      return res.status(400).json(formatResponse(false, "Valid classId is required"));
+    }
+
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
+    }
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
+    }
+
+    const cls = await Class.findOne({ _id: classId , school: schoolId }).select("_id school name grade section");
+    if (!cls) {
+      return res.status(404).json(formatResponse(false, "Class not found"));
+    }
+
+    const students = await Student.find({ class: classId }).select("_id user").populate("user", "_id name email school");
+    const studentIds = students.map(s => s.user._id);
+    // console.log("Found students for class:", studentIds);
+
+    const records = await Promise.all(studentIds.map((student) =>
+      buildMonthSummary({
+        schoolId,
+        studentId: student,
+        month: parsedMonth,
+        year: parsedYear,
+      } ) 
+
+    ));
+
+    return res.status(200).json(formatResponse(true, "Fee summary fetched successfully", {
+      class: {
+        _id: cls._id,
+        name: cls.name,
+        grade: cls.grade,
+        section: cls.section,
+      },
+      month: parsedMonth,
+      year: parsedYear,
+      records }));
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching fee summary", null, error.message));
+  }
+};
+
 const getStudentPaymentHistory = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -687,4 +747,5 @@ module.exports = {
   getStudentPaymentHistory,
   getClassWiseFeeMatrix,
   getSchoolWiseFeeMatrix,
+  getStudentByClassFeeByMonthYear
 };

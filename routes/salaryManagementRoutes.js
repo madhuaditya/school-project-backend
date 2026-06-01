@@ -7,6 +7,7 @@ const {
   getSalaryMatrixByMonth,
   recordSalaryPayment,
   getStaffPaymentHistory,
+  getStaffForAMonthForAllSameRoleSalaryByMonth
 } = require("../controllers/salaryManagementCtrl");
 const { validateUser } = require("../middleware/auth");
 const { allow } = require("../middleware/role");
@@ -20,8 +21,9 @@ router.post("/payment/create", allow("admin"), recordSalaryPayment);
 router.get("/payment/:id", allow("admin"), getSalaryPaymentById);
 router.get("/payment/:id/slip-html", allow("admin"), getSalaryPaymentSlipHtml);
 router.delete("/payment/:id", allow("admin"), deleteSalaryPayment);
-
+router.post("/summary/role/month/:month/:year", allow("admin"), getStaffForAMonthForAllSameRoleSalaryByMonth);
 router.get("/summary/staff/:staffId/month/:month/:year", allow("admin", "teacher", "staff"), getStaffSalaryByMonth);
+
 router.get("/summary/staff/:staffId/history", allow("admin", "teacher", "staff"), getStaffPaymentHistory);
 
 router.get("/analytics/matrix-month", allow("admin"), getSalaryMatrixByMonth);

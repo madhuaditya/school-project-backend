@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const SalaryPayment = require("../models/salaryPayment");
 const SalaryStructure = require("../models/salaryStructure");
 const User = require("../models/user");
+const Role = require("../models/role");
 const { renderSalarySlipHtml } = require("../utils/paymentSlip");
 
 const SALARY_METHODS = ["BANK", "UPI", "CASH"];
@@ -430,6 +431,67 @@ const getStaffSalaryByMonth = async (req, res) => {
   }
 };
 
+const getStaffForAMonthForAllSameRoleSalaryByMonth = async (req, res) => {
+  try {
+    const { month, year } = req.params;
+    const { role } = req.body;
+    if (!role) {
+      return res.status(400).json(formatResponse(false, "Role query parameter is required"));
+    }
+
+    const parsedMonth = Number(month);
+    const parsedYear = Number(year);
+
+    if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return res.status(400).json(formatResponse(false, "Month must be between 1 and 12"));
+    }
+
+    if (!Number.isInteger(parsedYear) || parsedYear < 2000) {
+      return res.status(400).json(formatResponse(false, "Valid year is required"));
+    }
+
+    const normalizedRole = role.toString().trim().toLowerCase();
+    const roleData = await Role.findOne({ role: normalizedRole });
+    if (!roleData) {
+      return res.status(400).json(formatResponse(false, "Invalid role query parameter"));
+    }
+
+    const allUsersWithRole = await User.find({
+      school: req.user.school._id,
+      role: roleData._id,
+    }).select("_id name email role");
+
+    if (allUsersWithRole.length === 0) {
+      return res.status(404).json(formatResponse(false, "No users found with the specified role"));
+    }
+
+    const records = await Promise.all(
+      allUsersWithRole.map((user) =>
+        buildMonthSummary({
+          schoolId: req.user.school._id,
+          staffId: user._id,
+          month: parsedMonth,
+          year: parsedYear,
+        })
+      )
+    );
+
+    const summary = {
+      role: normalizedRole,
+      month: parsedMonth,
+      year: parsedYear,
+      staffCount: allUsersWithRole.length,
+      records,
+    };
+
+    return res.status(200).json(formatResponse(true, "Salary summary fetched successfully", summary));
+  } catch (error) {
+    return res
+      .status(500)
+      .json(formatResponse(false, "Error fetching salary summary", null, error.message));
+  }
+};
+
 const getStaffPaymentHistory = async (req, res) => {
   try {
     const { staffId } = req.params;
@@ -562,4 +624,5 @@ module.exports = {
   getStaffSalaryByMonth,
   getStaffPaymentHistory,
   getSalaryMatrixByMonth,
+  getStaffForAMonthForAllSameRoleSalaryByMonth,
 };

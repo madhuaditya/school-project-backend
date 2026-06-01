@@ -7,7 +7,7 @@ const controller = require('../controllers/schoolManagementCtrl');
 
 const router = express.Router();
 
-router.use(validateUser, checkSubscriptionActive, requireSchoolAccount, allow('admin'));
+router.use(validateUser, checkSubscriptionActive, allow('admin')); // All routes in this router require authentication, an active subscription, and admin role
 
 router.get('/overview', controller.getSchoolOverview);
 
