@@ -30,7 +30,7 @@ const buildFailureResult = ({ provider, destination, errorMessage, responsePaylo
 
 const sendPushNotifications = async (pushtokens , userId , title , message,id,screen)=> {
 
-  if(pushtokens.length > 0){
+  if(pushtokens && pushtokens.length > 0){
     try {     
       await sendExpoPushNotifications({
         pushTokens: pushtokens || [],
