@@ -28,6 +28,29 @@ const buildFailureResult = ({ provider, destination, errorMessage, responsePaylo
   sentAt: status === 'sent' ? new Date() : null,
 });
 
+const sendPushNotifications = async (pushtokens , userId , title , message,id,screen)=> {
+
+  if(pushtokens.length > 0){
+    try {     
+      await sendExpoPushNotifications({
+        pushTokens: pushtokens || [],
+        title,
+        body: message,
+        data: {
+          type: 'alert',
+          screen: screen || 'my-alerts',
+          alertId: String(id),
+        },
+      });
+    } catch (error) {
+      console.warn('Expo push delivery failed for direct alert:', error.message);
+    }
+  }else {
+    console.warn(`No push tokens available for user ${userId}, skipping push notification`);
+  }
+
+}
+
 const sendAlert = async ({ schoolId, createdBy, recipient, title, message }) => {
   const alert = await Alert.create({
     school: schoolId,
@@ -38,6 +61,8 @@ const sendAlert = async ({ schoolId, createdBy, recipient, title, message }) => 
     viewed: false,
     viewedAt: null,
   });
+
+  sendPushNotifications(recipient?.pushTokens, recipient._id, title, message, alert._id);
 
   return buildSuccessResult({
     provider: 'internal-alert',
