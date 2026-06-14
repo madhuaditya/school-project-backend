@@ -32,7 +32,7 @@ const sendOTP = async (phone) => {
 const verifyOTP = async (phone, code) => {
   try {
     if(phone==TEST_ADMIN_ROLE || phone === TEST_TEACHER_ROLE || phone===TEST_STUDENT_ROLE || phone ==TEST_STAFF_ROLE ){
-      return true;
+      return {status:'approved',success:true};
     }
     const response = await client.verify.v2
       .services(serviceSid)
