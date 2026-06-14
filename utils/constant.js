@@ -1,0 +1,4 @@
+export const TEST_ADMIN_ROLE ='999999999';
+export const TEST_TEACHER_ROLE= '999999999';
+export const TEST_STUDENT_ROLE= '999999999';
+export const TEST_STAFF_ROLE= '999999999';

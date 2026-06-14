@@ -669,7 +669,6 @@ const login = async (req, res) => {
       return res.status(400).json(formatResponse(false, 'No phone number associated with this account for OTP verification'));
     }
     const response = await sendOTPToPhone(phone);
-    console.log('OTP sent response: ', response);
     if(!!response.success){
       const token = jwt.sign({ _id: u._id }, process.env.JWT_OTP_SECRET, { expiresIn: '10m' });
       return res.status(200).json(formatResponse(true, `OTP sent to xxxxx${phone.slice(-4)} successfully`, { token: token }));
