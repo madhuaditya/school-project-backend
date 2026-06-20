@@ -7,7 +7,7 @@ const staffSchema = new mongoose.Schema({
     },
     staffId: {
         type: String,
-        // required: true,
+        required: true,
         unique: true
     },
     position: {

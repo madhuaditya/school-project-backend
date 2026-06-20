@@ -373,6 +373,7 @@ const register = async (req, res) => {
         const Staff = require('../models/staff');
         const staffDoc = new Staff({
            _id: createdUser._id,
+           staffId : createdUser._id,
           user: createdUser._id,
         });
         await staffDoc.save({ session });
