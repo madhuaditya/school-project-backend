@@ -106,6 +106,7 @@ const fetchStudentRowsForExam = async ({ exam, academicYear, schoolId }) => {
     school: schoolId,
     subject: exam.subject,
     class: exam.class,
+    exam: exam._id,
     academicYear,
   }).sort({ date: -1, createdAt: -1 });
 
