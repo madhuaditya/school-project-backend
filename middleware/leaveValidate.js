@@ -9,7 +9,7 @@ const formatResponse = (success, msg, data = null, error = null) => ({
 
 const LEAVE_TYPES = ["sick", "casual", "earned", "maternity", "paternity", "other"];
 const LIST_STATUSES = ["all", "pending", "approved", "declined"];
-const REVIEW_ACTIONS = ["approved", "declined"];
+const REVIEW_ACTIONS = ["approved", "declined", 'approve', 'decline' , 'approv', 'declin'];
 
 const isObjectId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 
