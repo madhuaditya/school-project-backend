@@ -403,8 +403,14 @@ const reviewLeave = async (req, res) => {
 
     let syncMeta = null;
 
-    if (action === "approved") {
-      syncMeta = await syncAttendanceForApprovedLeave({ leaveDoc, reviewedBy: reviewerId });
+   const normalizedAction = action?.trim().toLowerCase();
+
+    if (["approved", "approve"].includes(normalizedAction)) {
+      syncMeta = await syncAttendanceForApprovedLeave({
+        leaveDoc,
+        reviewedBy: reviewerId,
+      });
+
       leaveDoc.status = "approved";
       leaveDoc.attendanceSyncMeta = {
         ...syncMeta,
@@ -412,7 +418,7 @@ const reviewLeave = async (req, res) => {
       };
     }
 
-    if (action === "declined") {
+    if (["declined", "decline"].includes(normalizedAction)) {
       leaveDoc.status = "declined";
       leaveDoc.attendanceSyncMeta = null;
     }
@@ -423,11 +429,11 @@ const reviewLeave = async (req, res) => {
     leaveDoc.updatedBy = reviewerId;
 
     await leaveDoc.save();
-
+    const isApproved = leaveDoc.status === "approved";
     const leavePeriod = `${new Date(leaveDoc.startDate).toLocaleDateString()} - ${new Date(leaveDoc.endDate).toLocaleDateString()}`;
-    const alertTitle = action === "approved" ? "Leave Approved" : "Leave Declined";
+    const alertTitle = isApproved ? "Leave Approved" : "Leave Declined";
     const alertMessage =
-      action === "approved"
+      isApproved
         ? `Your ${leaveDoc.leaveType} leave request (${leavePeriod}) has been approved.${reviewRemark ? ` Remark: ${reviewRemark}` : ""}`
         : `Your ${leaveDoc.leaveType} leave request (${leavePeriod}) has been declined.${reviewRemark ? ` Remark: ${reviewRemark}` : ""}`;
 
