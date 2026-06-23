@@ -325,12 +325,12 @@ const getSubjectDetails = async (req, res) => {
       return res.status(404).json(formatResponse(false, 'Unauthorized school access'));
     }
 
-    if (role === 'teacher') {
-      const canAccess = await canTeacherAccessSubject(req.user._id, subject);
-      if (!canAccess) {
-        return res.status(406).json(formatResponse(false, 'Teacher can access only assigned subjects'));
-      }
-    }
+    // if (role === 'teacher') {
+    //   const canAccess = await canTeacherAccessSubject(req.user._id, subject);
+    //   if (!canAccess) {
+    //     return res.status(406).json(formatResponse(false, 'Teacher can access only assigned subjects'));
+    //   }
+    // }
 
     const classId = subject.class?._id || subject.class;
     const [students, exams, progress, subjectRanking] = await Promise.all([
