@@ -1399,6 +1399,163 @@ const getTodayAttendanceRole = async (req, res) => {
  * Teacher: can mark only students in school
  * Overwrites existing attendance for same user+date combo
  */
+// const bulkMarkAttendance = async (req, res) => {
+//   try {
+//     const { records, date } = req.body;
+//     const currentUserId = req.user._id;
+//     const currentUserRole = req.user.role.role;
+//     const currentUserSchool = req.user.school._id;
+
+//     if (!currentUserSchool) {
+//       return res.status(400).json(formatResponse(false, "Your account is not associated with any school"));
+//     }
+
+//     if (!Array.isArray(records) || records.length === 0) {
+//       return res.status(400).json(formatResponse(false, "records array is required and must not be empty"));
+//     }
+
+//     // Determine attendance date: use provided date or default to today
+//     let attendanceDate = momentIst().startOf("day").toDate();
+//     console.log("Bulk marking attendance. Provided date:", date);
+//     if (date) {
+//       const parsedDate = momentIst(date).startOf("day");
+//       if (!parsedDate.isValid()) {
+//         return res.status(400).json(formatResponse(false, "Invalid date value"));
+//       }
+//       attendanceDate = parsedDate.toDate();
+//     }
+//     console.log("Bulk marking attendance for date (IST):", formatDateKey(attendanceDate));
+
+//     // Validate all records
+//     const validatedRecords = [];
+//     const uniqueUserIds = new Set();
+//     for (const record of records) {
+//       if (!record.userId || !record.status) {
+//         return res.status(400).json(formatResponse(false, "Each record must have userId and status"));
+//       }
+//       if (!["present", "absent", "leave"].includes(record.status)) {
+//         return res.status(400).json(formatResponse(false, `Invalid status: ${record.status}. Must be: present, absent, or leave`));
+//       }
+//       if (!uniqueUserIds.has(record.userId)) {
+//         uniqueUserIds.add(record.userId);
+//         validatedRecords.push({
+//           userId: record.userId,
+//           status: record.status,
+//           remarks: record.remarks || null,
+//           classId: record.classId || null
+//         });
+//       }
+//     }
+
+//     // Fetch all target users
+//     const users = await User.find({ _id: { $in: Array.from(uniqueUserIds) } })
+//       .populate("role", "role")
+//       .populate("school", "_id");
+
+//     if (users.length !== validatedRecords.length) {
+//       return res.status(404).json(formatResponse(false, "One or more user IDs do not exist"));
+//     }
+
+//     // Verify all users are in same school
+//     for (const user of users) {
+//       if (user.school._id.toString() !== currentUserSchool.toString()) {
+//         return res.status(403).json(formatResponse(false, `User ${user._id} is not in your school`));
+//       }
+//     }
+
+//     // Authorization: Teacher can only mark students
+//     if (currentUserRole === "teacher") {
+//       for (const user of users) {
+//         if (user.role.role !== "student") {
+//           return res.status(403).json(formatResponse(false, `Teacher can only mark attendance for students`));
+//         }
+//       }
+//     }
+
+//     // Perform upsert for each record
+//     const results = {
+//       processed: 0,
+//       created: [],
+//       updated: [],
+//       failed: []
+//     };
+
+//     for (const record of validatedRecords) {
+//       try {
+//         const existingAttendance = await Attendance.findOne({
+//           user: record.userId,
+//           date: attendanceDate,
+//           school: currentUserSchool
+//         });
+//         // console.log("Existing record date (IST):", existingAttendance ? formatDateKey(existingAttendance.date) : "none");
+//         if (existingAttendance) {
+//           // Update existing record
+//           // console.log(`Updating attendance for user ${record.userId} on ${formatDateKey(attendanceDate)}`);
+//           existingAttendance.status = record.status;
+//           existingAttendance.remarks = record.remarks;
+//           existingAttendance.updatedBy = currentUserId;
+//           existingAttendance.class = record.classId || existingAttendance.class;
+//           existingAttendance.updatedAt = momentIst().toDate();
+//           existingAttendance.date = attendanceDate; // Ensure date is consistent
+//           await existingAttendance.save();
+//           results.updated.push({
+//             userId: record.userId,
+//             status: record.status,
+//             action: "updated"
+//           });
+//         } else {
+//           // Create new record
+//           // console.log("Creating attendance for date (IST):", formatDateKey(attendanceDate));
+//           const newAttendance = await Attendance.create({
+//             user: record.userId,
+//             status: record.status,
+//             remarks: record.remarks,
+//             date: attendanceDate,
+//             school: currentUserSchool,
+//             class: record.classId || null,
+//             createdBy: currentUserId,
+//             updatedBy: currentUserId
+//           });
+//           results.created.push({
+//             userId: record.userId,
+//             status: record.status,
+//             action: "created"
+//           });
+//         }
+//         results.processed += 1;
+//       } catch (error) {
+//         results.failed.push({
+//           userId: record.userId,
+//           error: error.message
+//         });
+//       }
+//     }
+
+//     return res.status(200).json(
+//       formatResponse(true, "Bulk attendance processed successfully", {
+//         date: formatDateKey(attendanceDate),
+//         results: {
+//           totalProcessed: results.processed,
+//           totalCreated: results.created.length,
+//           totalUpdated: results.updated.length,
+//           totalFailed: results.failed.length,
+//           details: {
+//             created: results.created,
+//             updated: results.updated,
+//             failed: results.failed
+//           }
+//         }
+//       })
+//     );
+//   } catch (error) {
+//     console.error("Error processing bulk attendance:", error);
+//     return res.status(500).json(formatResponse(false, "Error processing bulk attendance", null, error.message));
+//   }
+// };
+
+// ==================== GET CLASS ATTENDANCE CSV ====================
+
+
 const bulkMarkAttendance = async (req, res) => {
   try {
     const { records, date } = req.body;
@@ -1407,37 +1564,72 @@ const bulkMarkAttendance = async (req, res) => {
     const currentUserSchool = req.user.school._id;
 
     if (!currentUserSchool) {
-      return res.status(400).json(formatResponse(false, "Your account is not associated with any school"));
+      return res.status(400).json(
+        formatResponse(
+          false,
+          "Your account is not associated with any school"
+        )
+      );
     }
 
     if (!Array.isArray(records) || records.length === 0) {
-      return res.status(400).json(formatResponse(false, "records array is required and must not be empty"));
+      return res.status(400).json(
+        formatResponse(
+          false,
+          "records array is required and must not be empty"
+        )
+      );
     }
 
-    // Determine attendance date: use provided date or default to today
+    // ==========================
+    // Attendance Date
+    // ==========================
+
     let attendanceDate = momentIst().startOf("day").toDate();
-    console.log("Bulk marking attendance. Provided date:", date);
+
     if (date) {
       const parsedDate = momentIst(date).startOf("day");
+
       if (!parsedDate.isValid()) {
-        return res.status(400).json(formatResponse(false, "Invalid date value"));
+        return res.status(400).json(
+          formatResponse(false, "Invalid date value")
+        );
       }
+
       attendanceDate = parsedDate.toDate();
     }
-    console.log("Bulk marking attendance for date (IST):", formatDateKey(attendanceDate));
 
-    // Validate all records
+    // ==========================
+    // Validate Records
+    // ==========================
+
     const validatedRecords = [];
     const uniqueUserIds = new Set();
+
     for (const record of records) {
       if (!record.userId || !record.status) {
-        return res.status(400).json(formatResponse(false, "Each record must have userId and status"));
+        return res.status(400).json(
+          formatResponse(
+            false,
+            "Each record must have userId and status"
+          )
+        );
       }
-      if (!["present", "absent", "leave"].includes(record.status)) {
-        return res.status(400).json(formatResponse(false, `Invalid status: ${record.status}. Must be: present, absent, or leave`));
+
+      if (
+        !["present", "absent", "leave"].includes(record.status)
+      ) {
+        return res.status(400).json(
+          formatResponse(
+            false,
+            `Invalid status: ${record.status}. Must be: present, absent, or leave`
+          )
+        );
       }
-      if (!uniqueUserIds.has(record.userId)) {
-        uniqueUserIds.add(record.userId);
+
+      if (!uniqueUserIds.has(record.userId.toString())) {
+        uniqueUserIds.add(record.userId.toString());
+
         validatedRecords.push({
           userId: record.userId,
           status: record.status,
@@ -1447,32 +1639,83 @@ const bulkMarkAttendance = async (req, res) => {
       }
     }
 
-    // Fetch all target users
-    const users = await User.find({ _id: { $in: Array.from(uniqueUserIds) } })
+    // ==========================
+    // Fetch Users
+    // ==========================
+
+    const users = await User.find({
+      _id: { $in: Array.from(uniqueUserIds) }
+    })
       .populate("role", "role")
-      .populate("school", "_id");
+      .populate("school", "_id")
+      .lean();
 
     if (users.length !== validatedRecords.length) {
-      return res.status(404).json(formatResponse(false, "One or more user IDs do not exist"));
+      return res.status(404).json(
+        formatResponse(
+          false,
+          "One or more user IDs do not exist"
+        )
+      );
     }
 
-    // Verify all users are in same school
+    // ==========================
+    // School Validation
+    // ==========================
+
     for (const user of users) {
-      if (user.school._id.toString() !== currentUserSchool.toString()) {
-        return res.status(403).json(formatResponse(false, `User ${user._id} is not in your school`));
+      if (
+        user.school?._id?.toString() !==
+        currentUserSchool.toString()
+      ) {
+        return res.status(403).json(
+          formatResponse(
+            false,
+            `User ${user._id} is not in your school`
+          )
+        );
       }
     }
 
-    // Authorization: Teacher can only mark students
+    // ==========================
+    // Teacher Authorization
+    // ==========================
+
     if (currentUserRole === "teacher") {
       for (const user of users) {
-        if (user.role.role !== "student") {
-          return res.status(403).json(formatResponse(false, `Teacher can only mark attendance for students`));
+        if (user.role?.role !== "student") {
+          return res.status(403).json(
+            formatResponse(
+              false,
+              "Teacher can only mark attendance for students"
+            )
+          );
         }
       }
     }
 
-    // Perform upsert for each record
+    // ==========================
+    // Find Existing Records Once
+    // ==========================
+
+    const existingAttendance = await Attendance.find({
+      user: { $in: Array.from(uniqueUserIds) },
+      school: currentUserSchool,
+      date: attendanceDate
+    })
+      .select("user")
+      .lean();
+
+    const existingUserMap = new Set(
+      existingAttendance.map((a) => a.user.toString())
+    );
+
+    // ==========================
+    // Build Bulk Operations
+    // ==========================
+
+    const bulkOperations = [];
+
     const results = {
       processed: 0,
       created: [],
@@ -1480,80 +1723,129 @@ const bulkMarkAttendance = async (req, res) => {
       failed: []
     };
 
+    const now = momentIst().toDate();
+
     for (const record of validatedRecords) {
-      try {
-        const existingAttendance = await Attendance.findOne({
-          user: record.userId,
-          date: attendanceDate,
-          school: currentUserSchool
-        });
-        // console.log("Existing record date (IST):", existingAttendance ? formatDateKey(existingAttendance.date) : "none");
-        if (existingAttendance) {
-          // Update existing record
-          // console.log(`Updating attendance for user ${record.userId} on ${formatDateKey(attendanceDate)}`);
-          existingAttendance.status = record.status;
-          existingAttendance.remarks = record.remarks;
-          existingAttendance.updatedBy = currentUserId;
-          existingAttendance.class = record.classId || existingAttendance.class;
-          existingAttendance.updatedAt = momentIst().toDate();
-          existingAttendance.date = attendanceDate; // Ensure date is consistent
-          await existingAttendance.save();
-          results.updated.push({
-            userId: record.userId,
-            status: record.status,
-            action: "updated"
-          });
-        } else {
-          // Create new record
-          // console.log("Creating attendance for date (IST):", formatDateKey(attendanceDate));
-          const newAttendance = await Attendance.create({
-            user: record.userId,
-            status: record.status,
-            remarks: record.remarks,
-            date: attendanceDate,
-            school: currentUserSchool,
-            class: record.classId || null,
-            createdBy: currentUserId,
-            updatedBy: currentUserId
-          });
-          results.created.push({
-            userId: record.userId,
-            status: record.status,
-            action: "created"
-          });
-        }
-        results.processed += 1;
-      } catch (error) {
-        results.failed.push({
+      const userId = record.userId.toString();
+
+      const isExisting =
+        existingUserMap.has(userId);
+
+      if (isExisting) {
+        results.updated.push({
           userId: record.userId,
-          error: error.message
+          status: record.status,
+          action: "updated"
+        });
+      } else {
+        results.created.push({
+          userId: record.userId,
+          status: record.status,
+          action: "created"
         });
       }
+
+      bulkOperations.push({
+        updateOne: {
+          filter: {
+            user: record.userId,
+            school: currentUserSchool,
+            date: attendanceDate
+          },
+          update: {
+            $set: {
+              status: record.status,
+              remarks: record.remarks,
+              class: record.classId,
+              updatedBy: currentUserId,
+              updatedAt: now
+            },
+            $setOnInsert: {
+              user: record.userId,
+              school: currentUserSchool,
+              date: attendanceDate,
+              createdBy: currentUserId
+            }
+          },
+          upsert: true
+        }
+      });
     }
 
+    // ==========================
+    // Execute Bulk Write
+    // ==========================
+
+    try {
+      if (bulkOperations.length > 0) {
+        await Attendance.bulkWrite(
+          bulkOperations,
+          {
+            ordered: false
+          }
+        );
+      }
+
+      results.processed =
+        validatedRecords.length;
+    } catch (error) {
+      console.error(
+        "Bulk attendance write error:",
+        error
+      );
+
+      return res.status(500).json(
+        formatResponse(
+          false,
+          "Error processing bulk attendance",
+          null,
+          error.message
+        )
+      );
+    }
+
+    // ==========================
+    // Success Response
+    // ==========================
+
     return res.status(200).json(
-      formatResponse(true, "Bulk attendance processed successfully", {
-        date: formatDateKey(attendanceDate),
-        results: {
-          totalProcessed: results.processed,
-          totalCreated: results.created.length,
-          totalUpdated: results.updated.length,
-          totalFailed: results.failed.length,
-          details: {
-            created: results.created,
-            updated: results.updated,
-            failed: results.failed
+      formatResponse(
+        true,
+        "Bulk attendance processed successfully",
+        {
+          date: formatDateKey(attendanceDate),
+          results: {
+            totalProcessed: results.processed,
+            totalCreated: results.created.length,
+            totalUpdated: results.updated.length,
+            totalFailed: results.failed.length,
+            details: {
+              created: results.created,
+              updated: results.updated,
+              failed: results.failed
+            }
           }
         }
-      })
+      )
     );
   } catch (error) {
-    console.error("Error processing bulk attendance:", error);
-    return res.status(500).json(formatResponse(false, "Error processing bulk attendance", null, error.message));
+    console.error(
+      "Error processing bulk attendance:",
+      error
+    );
+
+    return res.status(500).json(
+      formatResponse(
+        false,
+        "Error processing bulk attendance",
+        null,
+        error.message
+      )
+    );
   }
 };
 
-// ==================== GET CLASS ATTENDANCE CSV ====================
+
 /**
  * Export class attendance as CSV for date range
  * Admin: any class in school

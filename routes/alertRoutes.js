@@ -11,7 +11,7 @@ router.use(validateUser, checkSubscriptionActive);
 // ==================== ALERT ROUTES ====================
 
 // Admin - Create alert for any user in school
-router.post("/create", allow("admin"), createAlert);
+router.post("/create", allow("admin","teacher"), createAlert);
 
 // All users - Get unviewed alerts (admin sees all, others see own)
 router.get("/unviewed", getUnviewedAlerts);

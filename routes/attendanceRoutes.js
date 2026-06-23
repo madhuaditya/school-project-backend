@@ -29,9 +29,9 @@ router.use(validateUser, checkSubscriptionActive);
 // Admin: can mark for any student/staff/teacher
 // Teacher: can mark for students in their class and themselves
 // Staff: can mark only for themselves
-router.post("/mark",allow("admin", 'teacher', 'staff' ), markAttendance);
+router.post("/mark",allow("admin" ), markAttendance);
 
-router.post("/update",allow("admin", 'teacher', 'staff' ), updateAttendance);
+router.post("/update",allow("admin" ), updateAttendance);
 
 // ==================== GET ATTENDANCE ====================
 // Get own attendance or (if admin) any user's attendance
