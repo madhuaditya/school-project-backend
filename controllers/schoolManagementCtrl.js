@@ -466,7 +466,17 @@ const updateClassById = async (req, res) => {
         await session.abortTransaction();
         return res.status(400).json(formatResponse(false, 'Class teacher does not belong to this school'));
       }
+      if (teacher.classTeacher && teacher.classTeacher.toString() !== cls._id.toString()) {
+        // await session.abortTransaction();
+        // return res.status(400).json(formatResponse(false, 'Teacher is already assigned as class teacher for another class'));
+        const previousClass = await Class.findOne({ _id: teacher.classTeacher }).session(session);
+        if (previousClass) {
+          previousClass.classTeacher = null;
+          await previousClass.save({ session });
+        }
+      }
       teacher.classTeacher = cls._id;
+      teacher.class = cls._id;
       await teacher.save({ session });
       cls.classTeacher = req.body.classTeacher;
     }
@@ -557,7 +567,7 @@ const updateSubjectById = async (req, res) => {
     }
 
     const { name, code, class : classId, teacher : teacherId, maxMarks, active } = req.body;
-    console.log("classId ", classId, " teacherId ", teacherId , " name ", name, " code ", code, " maxMarks ", maxMarks, " active ", active , 'id ', id);
+    // console.log("classId ", classId, " teacherId ", teacherId , " name ", name, " code ", code, " maxMarks ", maxMarks, " active ", active , 'id ', id);
     if (name){ subject.name = name;}
     if (code) subject.code = code;
     let existingClass = null;
@@ -604,8 +614,12 @@ const updateSubjectById = async (req, res) => {
         return res.status(400).json(formatResponse(false, 'Teacher does not belong to this school'));
       }
       teacher.teachSubjects = teacher.teachSubjects || [];
+      teacher.teachSclass = teacher.teachSclass || [];
       if (!teacher.teachSubjects.some(sub => sub.toString() === subject._id.toString())) {
         teacher.teachSubjects.push(subject._id);
+      }
+      if (!teacher.teachSclass.some(cls => cls.toString() === subject.class.toString())) {
+        teacher.teachSclass.push(subject.class);
       }
       subject.teacher = teacherId;
     }

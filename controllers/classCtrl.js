@@ -17,13 +17,22 @@ const formatResponse = (success, msg, data = null, error = null) => {
 // ================= CREATE CLASS =================
 const createClass = async (req, res) => {
   try {
-    const { name, grade, section, capacity=100, room='R001' } = req.body;
+    const { name, grade, section, capacity=100, room='R001',classTeacher } = req.body;
     if(!name || !grade || !section) return res.status(400).json(formatResponse(false, "Name, grade and section are required"));
 
     const school = req.user.school._id;
 
     const getClass = await Class.findOne({ name, grade, section, school });
     if (getClass) return res.status(400).json(formatResponse(false, "Class with same name, grade and section already exists in your school"));
+
+    // find the teacher if classteacher is provided and check if that is in same school and not class teacher of other class
+   
+    if(classTeacher){
+      const teacher = await Teacher.findById(classTeacher).populate({ path: 'user', select: 'school' });
+      if(!teacher) return res.status(404).json(formatResponse(false, "Class teacher not found"));
+      if(teacher.user.school.toString() !== school.toString()) return res.status(403).json(formatResponse(false, "Class teacher not in your school"));
+      if(teacher.classTeacher || teacher.class) return res.status(400).json(formatResponse(false, "Teacher is already assigned as class teacher for another class"));
+    }
 
     const cls = await Class.create({
       name,
@@ -33,9 +42,18 @@ const createClass = async (req, res) => {
       room,
       school,
       createdBy: req.user._id,
-      updatedBy: req.user._id
+      updatedBy: req.user._id,
+      classTeacher: classTeacher || null
     });
 
+    if(classTeacher){
+      const teacher = await Teacher.findById(classTeacher).populate({ path: 'user', select: 'school' });
+      teacher.classTeacher = cls._id; // Assigning the class to the teacher
+      teacher.class = cls._id; // Assigning the class to the teacher
+      await teacher.save();
+    }
+
+    
     return res.status(201).json(formatResponse(true, "Class created successfully", cls));
 
   } catch (e) {
@@ -73,6 +91,31 @@ const assignClassTeacher = async (req, res) => {
     // If auth user is teacher, they cannot assign themselves or others
     if (adminInfo.role.role === 'teacher')
       return res.status(403).json(formatResponse(false, "Only admin can assign class teachers"));
+
+    if (teacher.classTeacher && teacher.classTeacher.toString() !== classId){
+      return res.status(400).json(formatResponse(false, "Teacher is already assigned as class teacher for another class"));
+    }
+
+    if(teacher.class && teacher.class.toString() !== classId){
+      return res.status(400).json(formatResponse(false, "Teacher is already assigned to another class"));
+    }
+
+    // first remove the class teacher from the previous class if any for the teacher
+    if (teacher.classTeacher && teacher.classTeacher.toString() !== classId) {
+      const previousClass = await Class.findById(teacher.classTeacher);
+      if (previousClass) {
+        previousClass.classTeacher = null;
+        await previousClass.save();
+      }
+      teacher.classTeacher = classId; // Assigning the new class to the teacher
+      teacher.class = classId;
+      await teacher.save();
+    }
+
+   // Class teacher is same then no need to update just throw success message
+    if (cls.classTeacher && cls.classTeacher.toString() === teacherId) {
+      return res.status(200).json(formatResponse(true, "Class teacher assigned successfully"));
+    }
 
     cls.classTeacher = teacherId;
     cls.updatedBy = adminInfo._id;

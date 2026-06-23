@@ -65,6 +65,10 @@ const createSubject = async (req, res) => {
     if (cls.school.toString() !== school.toString())
       return res.status(403).json(formatResponse(false, "Invalid school"));
 
+    if (teacher.school.toString() !== school.toString())
+      return res.status(403).json(formatResponse(false, "Invalid school"));
+
+
     const sub = await Subject.create({
       name,
       code,
@@ -78,7 +82,16 @@ const createSubject = async (req, res) => {
 
     // push subject into class
     cls.subjects.push(sub._id);
+    if(teacher.teachSubjects === undefined) {
+      teacher.teachSubjects = [];
+    }
+    if(teacher.teachSclass === undefined) {
+      teacher.teachSclass = [];
+    }
+    teacher.teachSubjects.push(sub._id);
+    teacher.teachSclass.push(classId);
     await cls.save();
+    await teacher.save();
 
     return res.status(201).json(formatResponse(true, "Subject created successfully", sub));
 
