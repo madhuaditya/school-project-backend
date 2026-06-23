@@ -328,7 +328,7 @@ const getSubjectDetails = async (req, res) => {
     if (role === 'teacher') {
       const canAccess = await canTeacherAccessSubject(req.user._id, subject);
       if (!canAccess) {
-        return res.status(403).json(formatResponse(false, 'Teacher can access only assigned subjects'));
+        return res.status(406).json(formatResponse(false, 'Teacher can access only assigned subjects'));
       }
     }
 
