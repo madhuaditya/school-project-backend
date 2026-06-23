@@ -322,7 +322,7 @@ const getSubjectDetails = async (req, res) => {
     }
 
     if (!subject.school || subject.school.toString() !== schoolId.toString()) {
-      return res.status(403).json(formatResponse(false, 'Unauthorized school access'));
+      return res.status(404).json(formatResponse(false, 'Unauthorized school access'));
     }
 
     if (role === 'teacher') {
