@@ -79,11 +79,37 @@ const resolveTeacherId = async (userId) => {
   return teacher?._id || null;
 };
 
+// const canTeacherAccessSubject = async (userId, subject) => {
+//   const teacherId = await resolveTeacherId(userId);
+//   console.log('Teacher ID:', teacherId, 'Subject Teacher ID:', subject.teacher);
+//   if (!teacherId) return false;
+//   return subject.teacher?.toString() === teacherId.toString();
+// };
+
+const extractId = (value) => {
+  if (!value) return null;
+
+  // ObjectId
+  if (typeof value?.toString === 'function' && !value._id) {
+    return value.toString();
+  }
+
+  // Populated document
+  if (value._id) {
+    return value._id.toString();
+  }
+
+  return null;
+};
+
 const canTeacherAccessSubject = async (userId, subject) => {
   const teacherId = await resolveTeacherId(userId);
+
   if (!teacherId) return false;
-  return subject.teacher?.toString() === teacherId.toString();
+// console.log('Teacher ID:', teacherId, 'Subject Teacher ID:', subject.teacher);
+  return extractId(subject?.teacher) === extractId(teacherId);
 };
+
 
 const validateMarkPayload = ({ marksObtained, totalMarks }) => {
   const marks = Number(marksObtained);
