@@ -309,6 +309,179 @@ const getExamProgressTemplate = async (req, res) => {
   }
 };
 
+// const bulkCreateProgress = async (req, res) => {
+//   try {
+//     const {
+//       subjectId,
+//       academicYear,
+//       type,
+//       title,
+//       examId,
+//       classId,
+//       rows = [],
+//     } = req.body;
+
+//     const school = getSchoolId(req.user);
+//     const role = getUserRole(req.user);
+
+//     if (!school) {
+//       return res.status(400).json(formatResponse(false, 'User school context missing'));
+//     }
+
+//     let exam = null;
+//     if (examId) {
+//       exam = await Exam.findById(examId)
+//         .populate('subject', '_id name code class school teacher maxMarks')
+//         .populate('class', '_id name section grade school');
+
+//       if (!exam) {
+//         return res.status(404).json(formatResponse(false, 'Exam not found'));
+//       }
+
+//       if (exam.school.toString() !== school.toString()) {
+//         return res.status(403).json(formatResponse(false, 'Exam is not in your school'));
+//       }
+//     }
+
+//     const resolvedSubjectId = subjectId || exam?.subject?._id;
+//     const resolvedAcademicYear = academicYear || exam?.academicYear;
+//     const resolvedType = type || (exam ? 'exam' : null);
+//     const resolvedTitle = title || exam?.name;
+//     const resolvedClassId = classId || exam?.class?._id;
+
+//     if (!resolvedSubjectId || !resolvedAcademicYear || !resolvedType || !resolvedTitle) {
+//       return res.status(400).json(formatResponse(false, 'subjectId, academicYear, type, and title are required'));
+//     }
+
+//     const subjectDoc = await Subject.findById(resolvedSubjectId).populate({ path: 'teacher', select: '_id user' });
+//     if (!subjectDoc) {
+//       return res.status(404).json(formatResponse(false, 'Subject not found'));
+//     }
+
+//     if (subjectDoc.school.toString() !== school.toString()) {
+//       return res.status(403).json(formatResponse(false, 'Subject is not in your school'));
+//     }
+
+//     if (role === 'teacher') {
+//       const canAccess = await canTeacherAccessSubject(req.user._id, subjectDoc);
+//       if (!canAccess) {
+//         return res.status(403).json(formatResponse(false, 'Teacher can add performance only for assigned subjects'));
+//       }
+//     }
+
+//     let payloadRows = Array.isArray(rows) ? rows : [];
+//     if (!payloadRows.length && exam) {
+//       payloadRows = await fetchStudentRowsForExam({ exam, academicYear: resolvedAcademicYear, schoolId: school });
+//     }
+
+//     if (!payloadRows.length) {
+//       return res.status(400).json(formatResponse(false, 'No rows provided for bulk create'));
+//     }
+
+//     const processed = [];
+//     const skipped = [];
+//     const operations = [];
+
+//     for (const row of payloadRows) {
+//       const rowStudentId = row.studentId || row.student?._id || row.student;
+//       if (!rowStudentId) {
+//         skipped.push({ row, reason: 'studentId is required' });
+//         continue;
+//       }
+
+//       const student = await Student.findById(rowStudentId)
+//         .populate({ path: 'user', select: '_id school name' })
+//         .populate({ path: 'class', select: '_id name section grade' });
+
+//       if (!student) {
+//         skipped.push({ row, reason: 'Student not found' });
+//         continue;
+//       }
+
+//       if (!student.user?.school || student.user.school.toString() !== school.toString()) {
+//         skipped.push({ row, reason: 'Student is not in your school' });
+//         continue;
+//       }
+
+//       if (resolvedClassId && student.class?._id && student.class._id.toString() !== resolvedClassId.toString()) {
+//         skipped.push({ row, reason: 'Student is not in the selected class' });
+//         continue;
+//       }
+
+//       const markValidation = validateMarkPayload({
+//         marksObtained: row.marksObtained,
+//         totalMarks: row.totalMarks || exam?.totalMarks,
+//       });
+
+//       if (!markValidation.ok) {
+//         skipped.push({ row, reason: markValidation.error });
+//         continue;
+//       }
+
+//       const totalMarks = markValidation.total;
+//       const marksObtained = markValidation.marks;
+//       const percentage = (marksObtained / totalMarks) * 100;
+//       const grade = getGrade(percentage);
+
+//       const progressFilter = {
+//         student: student._id,
+//         subject: resolvedSubjectId,
+//         type: resolvedType,
+//         title: resolvedTitle,
+//         academicYear: resolvedAcademicYear,
+//       };
+
+//       operations.push({
+//         updateOne: {
+//           filter: progressFilter,
+//           update: {
+//             $set: {
+//               ...progressFilter,
+//               class: resolvedClassId || student.class?._id || student.class,
+//               school,
+//               marksObtained,
+//               totalMarks,
+//               percentage,
+//               grade,
+//               remarks: row.remarks || '',
+//               date: row.date || exam?.scheduledDate || new Date(),
+//               exam: exam?._id || row.examId || undefined,
+//               updatedBy: req.user._id,
+//             },
+//             $setOnInsert: {
+//               createdBy: req.user._id,
+//             },
+//           },
+//           upsert: true,
+//         },
+//       });
+
+//       processed.push({
+//         studentId: student._id,
+//         percentage,
+//         grade,
+//       });
+//     }
+
+//     if (!operations.length) {
+//       return res.status(400).json(formatResponse(false, 'No valid rows to process', { skipped }));
+//     }
+
+//     const result = await Progress.bulkWrite(operations, { ordered: false });
+
+//     return res.status(200).json(
+//       formatResponse(true, 'Bulk progress processed successfully', {
+//         matchedCount: result?.matchedCount || 0,
+//         modifiedCount: result?.modifiedCount || 0,
+//         upsertedCount: result?.upsertedCount || 0,
+//         processedCount: processed.length,
+//         skipped,
+//       })
+//     );
+//   } catch (e) {
+//     return res.status(500).json(formatResponse(false, 'Error processing bulk progress', null, e.message));
+//   }
+// };
 const bulkCreateProgress = async (req, res) => {
   try {
     const {
@@ -378,20 +551,37 @@ const bulkCreateProgress = async (req, res) => {
       return res.status(400).json(formatResponse(false, 'No rows provided for bulk create'));
     }
 
-    const processed = [];
+    // --- OPTIMIZATION START: Batch Fetch Students ---
+    const studentIds = [];
+    const validPayloadRows = [];
     const skipped = [];
-    const operations = [];
 
+    // Filter rows with missing IDs upfront to avoid unneeded queries
     for (const row of payloadRows) {
       const rowStudentId = row.studentId || row.student?._id || row.student;
       if (!rowStudentId) {
         skipped.push({ row, reason: 'studentId is required' });
-        continue;
+      } else {
+        studentIds.push(rowStudentId);
+        validPayloadRows.push({ ...row, resolvedStudentId: rowStudentId.toString() });
       }
+    }
 
-      const student = await Student.findById(rowStudentId)
-        .populate({ path: 'user', select: '_id school name' })
-        .populate({ path: 'class', select: '_id name section grade' });
+    // Fetch all students in a single query
+    const studentsList = await Student.find({ _id: { $in: studentIds } })
+      .populate({ path: 'user', select: '_id school name' })
+      .populate({ path: 'class', select: '_id name section grade' })
+      .lean(); // .lean() improves read performance dramatically by returning plain JS objects
+
+    // Map students by ID for O(1) instantaneous access
+    const studentMap = new Map(studentsList.map(s => [s._id.toString(), s]));
+    // --- OPTIMIZATION END ---
+
+    const processed = [];
+    const operations = [];
+
+    for (const row of validPayloadRows) {
+      const student = studentMap.get(row.resolvedStudentId);
 
       if (!student) {
         skipped.push({ row, reason: 'Student not found' });
@@ -482,7 +672,6 @@ const bulkCreateProgress = async (req, res) => {
     return res.status(500).json(formatResponse(false, 'Error processing bulk progress', null, e.message));
   }
 };
-
 const bulkUpdateProgress = async (req, res) => {
   try {
     const { rows = [] } = req.body;
